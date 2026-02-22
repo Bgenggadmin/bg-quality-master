@@ -4,8 +4,7 @@ from datetime import datetime
 import os
 
 # --- 1. DATA FILES ---
-JOB_FILE = "bg_jobs.txt" # You can link this to your other app later
-QUALITY_LOG = "bg_quality_records.csv"
+QUALITY_LOG = "bg_quality_records_v2.csv"
 
 # --- 2. SECURITY ---
 if "authenticated" not in st.session_state:
@@ -29,33 +28,36 @@ tabs = st.tabs(["📋 Inspection Log", "📊 Quality Analytics"])
 with tabs[0]:
     st.subheader("New Quality Inspection Entry")
     
-    inspectors = ["Prasanth", "RamaSai", "Subodth", "Naresh", "Ravindra"]
+    supervisors = ["Prasanth", "RamaSai", "Subodth", "Naresh", "Ravindra"]
     
+    # Updated with your specific fabrication checks
     inspection_types = [
-        "Dimensional Check", 
-        "DP Test (Dye Penetrant)", 
+        "Marking",
+        "Fitup",
+        "Nozzle Orientation",
+        "PMI (Material ID)",
+        "Runout",
+        "Load Test",
         "Hydrotest", 
-        "Pneumatic Test", 
-        "Surface Finish (Mirror/Matt)", 
-        "Welding Visual Inspection",
-        "Radiography Review",
-        "Pickling & Passivation Check"
+        "DP Test (Dye Penetrant)", 
+        "FAT (Factory Acceptance Test)",
+        "Surface Finish",
+        "Final Dimensional Check"
     ]
     
     c1, c2 = st.columns(2)
     with c1:
-        inspector = st.selectbox("Inspector Name", inspectors)
-        job_code = st.text_input("Job Code (e.g., DIST-05)") #
+        inspector = st.selectbox("Inspector Name", supervisors)
+        job_code = st.text_input("Job Code (e.g., DIST-05)")
         unit = st.selectbox("Unit Location", ["A", "B", "C"])
     with c2:
         test_type = st.selectbox("Inspection Type", inspection_types)
         status = st.radio("Result Status", ["✅ PASSED", "❌ FAILED / REWORK", "⚠️ HOLD"])
     
-    details = st.text_area("Observation / Technical Remarks")
+    details = st.text_area("Observation / Technical Remarks (e.g., Deviation in mm)")
 
     if st.button("Submit Quality Report"):
         now = datetime.now()
-        # Data Structure: Date, Time, Inspector, Job, Unit, Test, Status, Remarks
         row = f"{now.strftime('%Y-%m-%d')},{now.strftime('%H:%M')},{inspector},{job_code},{unit},{test_type},{status},{details.replace(',', ';')}\n"
         with open(QUALITY_LOG, "a") as f: f.write(row)
         st.success(f"Quality Report for {job_code} Recorded!")
@@ -66,24 +68,15 @@ with tabs[1]:
     if os.path.exists(QUALITY_LOG):
         df = pd.read_csv(QUALITY_LOG, names=["Date","Time","Inspector","Job","Unit","Test","Status","Remarks"])
         
-        # Summary 1: Pass vs Fail Ratio
         st.write("### 📈 Overall Inspection Status")
-        status_counts = df["Status"].value_counts()
-        st.bar_chart(status_counts)
+        st.bar_chart(df["Status"].value_counts())
         
-        # Summary 2: Failures by Unit (Identify where training is needed)
-        st.write("### 📍 Issues by Unit")
+        st.write("### 📍 Issues by Test Type")
         fails = df[df["Status"] == "❌ FAILED / REWORK"]
         if not fails.empty:
-            st.bar_chart(fails.groupby("Unit").size())
-        else:
-            st.success("No reworks recorded yet! High-quality performance.")
+            st.bar_chart(fails.groupby("Test").size())
             
-        with st.expander("🔍 Search Full Quality History"):
-            search = st.text_input("Search by Job Code")
-            if search:
-                st.dataframe(df[df["Job"].str.contains(search, case=False)])
-            else:
-                st.dataframe(df)
+        with st.expander("🔍 Search Full History"):
+            st.dataframe(df)
     else:
         st.info("No quality records found.")
