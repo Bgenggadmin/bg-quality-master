@@ -1,32 +1,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import os
 import base64
+from io import BytesIO
 from PIL import Image
-import io
 
-# --- 1. DATA FILES ---
-QUALITY_LOG = "bg_quality_records_v3.csv"
-
-# --- 2. IMAGE HELPER ---
-def image_to_base64(uploaded_file):
-    if uploaded_file is not None:
-        img = Image.open(uploaded_file)
-        # Resize to keep the file small for GitHub storage
-        img.thumbnail((400, 400))
-        buffered = io.BytesIO()
-        img.save(buffered, format="JPEG")
-        return base64.b64encode(buffered.getvalue()).decode()
-    return ""
-
-# --- 3. SECURITY ---
+# --- 1. SECURITY ---
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
 if not st.session_state["authenticated"]:
-    st.title("🛡️ B&G Quality Control Access")
-    pwd = st.text_input("Enter Quality Dept Password", type="password")
+    st.title("✅ B&G Quality Master Access")
+    pwd = st.text_input("Enter Quality Password", type="password")
     if st.button("Log In"):
         if pwd == "BGQUALITY": 
             st.session_state["authenticated"] = True
@@ -34,56 +19,63 @@ if not st.session_state["authenticated"]:
         else: st.error("Access Denied")
     st.stop()
 
-# --- 4. MAIN INTERFACE ---
-st.title("✅ B&G Engineering: Quality Assurance")
-tabs = st.tabs(["📋 Inspection Log", "📊 Quality Analytics"])
+# --- 2. MAIN INTERFACE ---
+st.title("✅ B&G Engineering: Quality Master")
+tabs = st.tabs(["📸 New Inspection", "📊 History & Reports"])
 
 with tabs[0]:
-    st.subheader("New Quality Inspection Entry")
-    supervisors = ["Prasanth", "RamaSai", "Subodth", "Naresh", "Ravindra"]
-    inspection_types = ["Marking","Fitup","Nozzle Orientation","PMI (Material ID)","Runout","Load Test","Hydrotest","DP Test","FAT","Surface Finish"]
+    st.subheader("Record Technical Inspection")
     
+    # Core B&G technical checks
+    tests = ["Marking", "Fitup", "Nozzle Orientation", "PMI", "Runout", "Load Test", "Hydrotest", "DP Test", "FAT", "Surface Finish"]
+    inspectors = ["Prasanth", "RamaSai", "Subodth", "Naresh", "Ravindra"]
+
     c1, c2 = st.columns(2)
     with c1:
-        inspector = st.selectbox("Inspector Name", supervisors)
-        job_code = st.text_input("Job Code (e.g., DIST-05)")
+        inspector = st.selectbox("Inspector Name", inspectors)
+        job_code = st.text_input("Job Code (e.g., SSR501)", placeholder="Enter Project ID")
+        test_type = st.selectbox("Inspection Stage", tests)
     with c2:
-        test_type = st.selectbox("Inspection Type", inspection_types)
-        status = st.radio("Result Status", ["✅ PASSED", "❌ REWORK"])
+        status = st.radio("Inspection Status", ["🟢 Passed", "🔴 Rework Required"])
+        remarks = st.text_area("Observations/Remarks")
 
-    # --- PHOTO UPLOAD OPTION ---
-    st.write("📷 **Upload Evidence (Photo of Test/Job)**")
-    # This works with both mobile cameras and gallery
-    img_file = st.file_uploader("Take a photo or choose a file", type=['jpg', 'png', 'jpeg'])
+    # --- UPDATED PHOTO SECTION ---
+    st.write("---")
+    st.write("### 🖼️ Photo Evidence")
     
-    details = st.text_area("Technical Remarks")
+    # Option 1: Live Camera
+    cam_photo = st.camera_input("Take Live Shopfloor Photo")
+    
+    # Option 2: File Upload (Backup)
+    upload_photo = st.file_uploader("Or Upload from Gallery", type=["jpg", "png", "jpeg"])
 
-    if st.button("Submit Quality Report"):
-        img_str = image_to_base64(img_file)
-        now = datetime.now()
-        # Row: Date, Time, Inspector, Job, Test, Status, Remarks, Image_Data
-        row = f"{now.strftime('%Y-%m-%d')},{now.strftime('%H:%M')},{inspector},{job_code},{test_type},{status},{details.replace(',','|')},{img_str}\n"
-        with open(QUALITY_LOG, "a") as f: f.write(row)
-        st.success(f"Quality Report with Photo Saved!")
+    # Processing the image
+    final_img_str = ""
+    photo_to_process = cam_photo if cam_photo else upload_photo
+
+    if photo_to_process:
+        img = Image.open(photo_to_process)
+        buffered = BytesIO()
+        img.save(buffered, format="JPEG")
+        final_img_str = base64.b64encode(buffered.getvalue()).decode()
+        st.success("Photo captured and processed!")
+
+    if st.button("Submit Quality Record"):
+        if job_code:
+            now = datetime.now()
+            # Saving to CSV for B&G records
+            row = f"{now.strftime('%Y-%m-%d %H:%M')},{inspector},{job_code},{test_type},{status},{remarks.replace(',',';')},{final_img_str}\n"
+            with open("bg_quality_records.csv", "a") as f:
+                f.write(row)
+            st.balloons()
+            st.success(f"Inspection for {job_code} logged successfully!")
+        else:
+            st.warning("Please enter a Job Code before submitting.")
 
 with tabs[1]:
-    st.subheader("Inspection History & Photos")
-    if os.path.exists(QUALITY_LOG):
-        df = pd.read_csv(QUALITY_LOG, names=["Date","Time","Inspector","Job","Test","Status","Remarks","PhotoData"])
-        
-        search_job = st.text_input("Search Job Code (e.g., DIST-05)")
-        if search_job:
-            filtered_df = df[df["Job"].str.contains(search_job, case=False)]
-            for index, row in filtered_df.iterrows():
-                with st.container():
-                    col_text, col_img = st.columns([2, 1])
-                    with col_text:
-                        st.write(f"**Date:** {row['Date']} | **Test:** {row['Test']}")
-                        st.write(f"**Status:** {row['Status']} | **Inspector:** {row['Inspector']}")
-                        st.write(f"**Notes:** {row['Remarks']}")
-                    with col_img:
-                        if pd.notnull(row['PhotoData']) and row['PhotoData'] != "":
-                            st.image(base64.b64decode(row['PhotoData']), use_container_width=True)
-                    st.divider()
-    else:
-        st.info("No records yet.")
+    st.subheader("Inspection History")
+    try:
+        df = pd.read_csv("bg_quality_records.csv", names=["Timestamp","Inspector","Job","Test","Status","Remarks","PhotoData"])
+        st.dataframe(df.iloc[:, :-1].sort_values(by="Timestamp", ascending=False))
+    except:
+        st.info("No records found yet.")
