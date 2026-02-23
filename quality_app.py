@@ -1,81 +1,71 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import base64
 from io import BytesIO
 from PIL import Image
+import extra_streamlit_components as cookie_manager
 
-# --- 1. SECURITY ---
+# --- 1. PERSISTENT LOGIN (COOKIE) ---
+controller = cookie_manager.CookieManager()
+
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
+# Wait for cookies to load
+all_cookies = controller.get_all()
+if not all_cookies:
+    st.stop()
+
+# Check for existing 30-day login
+if controller.get("bg_quality_login") == "true":
+    st.session_state["authenticated"] = True
+
+# --- 2. LOGIN INTERFACE ---
 if not st.session_state["authenticated"]:
-    st.title("✅ B&G Quality Master Access")
+    st.title("✅ B&G Quality: Secure Access")
     pwd = st.text_input("Enter Quality Password", type="password")
+    remember = st.checkbox("Keep me logged in for 30 days")
+    
     if st.button("Log In"):
         if pwd == "BGQUALITY": 
             st.session_state["authenticated"] = True
+            if remember:
+                # Set cookie for 30 days
+                controller.set("bg_quality_login", "true", expires_at=datetime.now() + timedelta(days=30))
             st.rerun()
-        else: st.error("Access Denied")
+        else: 
+            st.error("Access Denied")
     st.stop()
 
-# --- 2. MAIN INTERFACE ---
+# --- 3. MAIN INTERFACE (Camera Enabled) ---
 st.title("✅ B&G Engineering: Quality Master")
-tabs = st.tabs(["📸 New Inspection", "📊 History & Reports"])
+tests = ["Marking", "Fitup", "Nozzle Orientation", "PMI", "Hydrotest", "DP Test", "FAT"]
+inspectors = ["Prasanth", "RamaSai", "Subodth", "Naresh", "Ravindra"]
 
-with tabs[0]:
-    st.subheader("Record Technical Inspection")
+with st.form("quality_form"):
+    inspector = st.selectbox("Inspector Name", inspectors)
+    job_code = st.text_input("Job Code (e.g., SSR501)")
+    test_type = st.selectbox("Inspection Stage", tests)
+    status = st.radio("Status", ["🟢 Passed", "🔴 Rework"])
     
-    # Core B&G technical checks
-    tests = ["Marking", "Fitup", "Nozzle Orientation", "PMI", "Runout", "Load Test", "Hydrotest", "DP Test", "FAT", "Surface Finish"]
-    inspectors = ["Prasanth", "RamaSai", "Subodth", "Naresh", "Ravindra"]
-
-    c1, c2 = st.columns(2)
-    with c1:
-        inspector = st.selectbox("Inspector Name", inspectors)
-        job_code = st.text_input("Job Code (e.g., SSR501)", placeholder="Enter Project ID")
-        test_type = st.selectbox("Inspection Stage", tests)
-    with c2:
-        status = st.radio("Inspection Status", ["🟢 Passed", "🔴 Rework Required"])
-        remarks = st.text_area("Observations/Remarks")
-
-    # --- UPDATED PHOTO SECTION ---
-    st.write("---")
-    st.write("### 🖼️ Photo Evidence")
+    st.write("### 📸 Photo Evidence")
+    cam_photo = st.camera_input("Take Live Shopfloor Photo") #
+    upload_photo = st.file_uploader("Or Upload Gallery Photo", type=["jpg", "png"])
     
-    # Option 1: Live Camera
-    cam_photo = st.camera_input("Take Live Shopfloor Photo")
-    
-    # Option 2: File Upload (Backup)
-    upload_photo = st.file_uploader("Or Upload from Gallery", type=["jpg", "png", "jpeg"])
-
-    # Processing the image
-    final_img_str = ""
-    photo_to_process = cam_photo if cam_photo else upload_photo
-
-    if photo_to_process:
-        img = Image.open(photo_to_process)
-        buffered = BytesIO()
-        img.save(buffered, format="JPEG")
-        final_img_str = base64.b64encode(buffered.getvalue()).decode()
-        st.success("Photo captured and processed!")
-
-    if st.button("Submit Quality Record"):
-        if job_code:
-            now = datetime.now()
-            # Saving to CSV for B&G records
-            row = f"{now.strftime('%Y-%m-%d %H:%M')},{inspector},{job_code},{test_type},{status},{remarks.replace(',',';')},{final_img_str}\n"
-            with open("bg_quality_records.csv", "a") as f:
-                f.write(row)
-            st.balloons()
-            st.success(f"Inspection for {job_code} logged successfully!")
-        else:
-            st.warning("Please enter a Job Code before submitting.")
-
-with tabs[1]:
-    st.subheader("Inspection History")
-    try:
-        df = pd.read_csv("bg_quality_records.csv", names=["Timestamp","Inspector","Job","Test","Status","Remarks","PhotoData"])
-        st.dataframe(df.iloc[:, :-1].sort_values(by="Timestamp", ascending=False))
-    except:
-        st.info("No records found yet.")
+    if st.form_submit_button("Submit Record"):
+        # Process image to Base64
+        photo = cam_photo if cam_photo else upload_photo
+        img_str = ""
+        if photo:
+            img = Image.open(photo)
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+        # Log to CSV
+        now = datetime.now().strftime('%Y-%m-%d %H:%M')
+        row = f"{now},{inspector},{job_code},{test_type},{status},{img_str}\n"
+        with open("bg_quality_records.csv", "a") as f:
+            f.write(row)
+        st.success("Inspection Logged!")
