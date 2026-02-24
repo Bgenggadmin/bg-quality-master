@@ -1,111 +1,87 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import base64
-from io import BytesIO
-from PIL import Image
+import pytz
 import os
+from github import Github
+from PIL import Image
 
-# --- 1. SETUP LOCAL STORAGE ---
-QUALITY_LOGS = "quality_logs.csv"
-INSPECTORS_FILE = "inspectors.txt"
-JOBS_FILE = "jobs_quality.txt"
+# --- 1. SETUP & TIMEZONE (IST) ---
+IST = pytz.timezone('Asia/Kolkata')
+QUALITY_LOG = "quality_records.csv"
+PHOTO_DIR = "quality_photos"
 
-def load_list(file_path, defaults):
-    if os.path.exists(file_path):
-        with open(file_path, "r") as f:
-            return [line.strip() for line in f.readlines() if line.strip()]
-    return defaults
+# Headers aligned with your shopfloor requirements
+HEADERS = ["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes", "Photo_Path"]
 
-def save_list(file_path, data_list):
-    with open(file_path, "w") as f:
-        for item in data_list:
-            f.write(f"{item}\n")
+# --- 2. GITHUB SYNC ---
+def sync_to_github(file_path, is_image=False):
+    try:
+        if "GITHUB_TOKEN" in st.secrets:
+            g = Github(st.secrets["GITHUB_TOKEN"])
+            repo = g.get_repo(st.secrets["GITHUB_REPO"])
+            
+            if is_image:
+                with open(file_path, "rb") as f:
+                    content = f.read()
+            else:
+                with open(file_path, "r") as f:
+                    content = f.read()
+            
+            try:
+                contents = repo.get_contents(file_path)
+                repo.update_file(contents.path, f"Quality Sync {datetime.now(IST)}", content, contents.sha)
+            except:
+                repo.create_file(file_path, "Initial Quality Create", content)
+    except Exception as e:
+        st.error(f"Sync Error: {e}")
 
-# Load existing lists
-inspectors = load_list(INSPECTORS_FILE, ["Prasanth", "RamaSai", "Subodth", "Naresh"])
-job_list = load_list(JOBS_FILE, ["SSR501", "SSR502"])
+st.set_page_config(page_title="B&G Quality Master", layout="wide")
+st.title("🛡️ B&G Quality & Traceability")
 
-st.title("✅ B&G Quality Master")
+# --- 3. ENTRY FORM ---
+col1, col2 = st.columns(2)
+with col1:
+    inspector = st.selectbox("Inspector", ["Subodth", "Prasanth", "RamaSai"])
+    job_code = st.text_input("Job Code (e.g., SSR501)")
+    stage = st.selectbox("Inspection Stage", ["Marking", "Fitup", "Welding", "Hydro-Test", "Final"])
+    status = st.radio("Status", ["🟢 Passed", "🔴 Rejected", "🟡 Hold"], horizontal=True)
 
-# --- 2. ADMIN PANEL (Manage Inspectors & Jobs) ---
-with st.expander("⚙️ ADMIN: Add/Remove Inspectors & Job Codes"):
-    tab1, tab2 = st.tabs(["Inspectors", "Job Codes"])
-    
-    with tab1:
-        new_ins = st.text_input("New Inspector Name")
-        if st.button("➕ Add Inspector"):
-            if new_ins and new_ins not in inspectors:
-                inspectors.append(new_ins)
-                save_list(INSPECTORS_FILE, inspectors)
-                st.rerun()
+with col2:
+    img_file = st.camera_input("📸 Take Photo of Heat No / Job Progress")
+    notes = st.text_area("Quality Notes / Technical Observations")
+
+if st.button("🛡️ Submit Quality Record"):
+    if not job_code:
+        st.warning("Please enter a Job Code.")
+    else:
+        ts = datetime.now(IST).strftime('%Y-%m-%d %H:%M')
+        photo_path = "None"
         
-        ins_to_remove = st.selectbox("Remove Inspector", ["-- Select --"] + inspectors)
-        if st.button("🗑️ Delete Inspector"):
-            if ins_to_remove != "-- Select --":
-                inspectors.remove(ins_to_remove)
-                save_list(INSPECTORS_FILE, inspectors)
-                st.rerun()
-
-    with tab2:
-        new_job = st.text_input("New Quality Job Code")
-        if st.button("➕ Add Quality Job"):
-            if new_job and new_job not in job_list:
-                job_list.append(new_job)
-                save_list(JOBS_FILE, job_list)
-                st.rerun()
+        if img_file:
+            if not os.path.exists(PHOTO_DIR): os.makedirs(PHOTO_DIR)
+            photo_path = f"{PHOTO_DIR}/IMG_{datetime.now(IST).strftime('%d%m%Y_%H%M%S')}.png"
+            Image.open(img_file).save(photo_path)
+            sync_to_github(photo_path, is_image=True)
         
-        job_to_remove = st.selectbox("Remove Quality Job", ["-- Select --"] + job_list)
-        if st.button("🗑️ Delete Quality Job"):
-            if job_to_remove != "-- Select --":
-                job_list.remove(job_to_remove)
-                save_list(JOBS_FILE, job_list)
-                st.rerun()
-
-# --- 3. INSPECTION FORM (With Camera & Notes) ---
-st.divider()
-with st.form("quality_form", clear_on_submit=True):
-    col1, col2 = st.columns(2)
-    with col1:
-        sel_inspector = st.selectbox("Inspector", inspectors)
-        sel_job = st.selectbox("Job Code", job_list)
-        stage = st.selectbox("Stage", ["Marking", "Fitup", "PMI", "Hydro", "Final"])
-    with col2:
-        status = st.radio("Status", ["🟢 Passed", "🔴 Rework"])
-        notes = st.text_area("📋 Technical Notes / Observations")
-
-    photo = st.camera_input("Take Shopfloor Photo")
-    
-    if st.form_submit_button("Submit Quality Record"):
-        img_str = "No Photo"
-        if photo:
-            img = Image.open(photo)
-            buffered = BytesIO()
-            img.save(buffered, format="JPEG")
-            img_str = base64.b64encode(buffered.getvalue()).decode()
-
-        new_entry = pd.DataFrame([{
-            "Timestamp": datetime.now().strftime('%Y-%m-%d %H:%M'),
-            "Inspector": sel_inspector,
-            "Job_Code": sel_job,
-            "Stage": stage,
-            "Status": status,
-            "Notes": notes,
-            "Photo": img_str
-        }])
+        new_row = [ts, inspector, job_code, stage, status, notes, photo_path]
         
-        if os.path.exists(QUALITY_LOGS):
-            df = pd.read_csv(QUALITY_LOGS)
-            df = pd.concat([df, new_entry], ignore_index=True)
+        if os.path.exists(QUALITY_LOG):
+            df = pd.read_csv(QUALITY_LOG)
+            # Standardize and cleanup columns
+            df = df.loc[:, ~df.columns.duplicated()]
+            df = pd.concat([df, pd.DataFrame([new_row], columns=HEADERS)], ignore_index=True)
         else:
-            df = new_entry
-        df.to_csv(QUALITY_LOGS, index=False)
-        st.success(f"Inspection for {sel_job} saved!")
-        st.balloons()
+            df = pd.DataFrame([new_row], columns=HEADERS)
+            
+        df.to_csv(QUALITY_LOG, index=False)
+        sync_to_github(QUALITY_LOG)
+        st.success(f"✅ Record & Photo Synced at {ts}")
+        st.rerun()
 
-# --- 4. VIEW & EXPORT ---
+# --- 4. DISPLAY ---
 st.divider()
-if os.path.exists(QUALITY_LOGS):
-    df_view = pd.read_csv(QUALITY_LOGS)
-    st.download_button("📥 DOWNLOAD QUALITY DATA", df_view.to_csv(index=False), "bg_quality_data.csv")
-    st.dataframe(df_view.drop(columns=["Photo"]).sort_values(by="Timestamp", ascending=False))
+if os.path.exists(QUALITY_LOG):
+    df_view = pd.read_csv(QUALITY_LOG).reindex(columns=HEADERS)
+    st.subheader("📊 Recent Inspection Records")
+    st.dataframe(df_view.sort_values(by="Timestamp", ascending=False), use_container_width=True)
