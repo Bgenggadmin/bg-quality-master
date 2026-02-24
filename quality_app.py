@@ -89,20 +89,21 @@ if os.path.exists(QUALITY_LOG):
 st.divider()
 if os.path.exists(QUALITY_LOG):
     st.subheader("🖼️ Quality Photo Gallery")
-    # Filter only records that have a valid photo path
-    photo_df = df_view[df_view['Photo_Path'] != "None"]
+    # Filter only records that actually have a photo path saved
+    photo_df = df_view[df_view['Photo_Path'].notna() & (df_view['Photo_Path'] != "None")]
     
     if not photo_df.empty:
-        # Create a dropdown to select a Job Code to view its photo
-        selected_log = st.selectbox("Select Record to View Photo", 
-                                    photo_df['Timestamp'] + " - " + photo_df['Job_Code'])
+        # Create a dropdown to select a specific inspection record
+        gallery_list = photo_df['Timestamp'] + " - " + photo_df['Job_Code']
+        selected_log = st.selectbox("Select Record to View Photo", gallery_list)
         
-        # Find the path for the selected record
+        # Extract the correct path for the selected record
         path_to_show = photo_df[photo_df['Timestamp'] + " - " + photo_df['Job_Code'] == selected_log]['Photo_Path'].values[0]
         
-        if os.path.exists(path_to_show):
-            st.image(path_to_show, caption=f"Inspection Photo for {selected_log}")
+        # Verify the file exists on the server before trying to open it
+        if isinstance(path_to_show, str) and os.path.exists(path_to_show):
+            st.image(path_to_show, caption=f"Inspection Photo for {selected_log}", use_container_width=True)
         else:
-            st.warning("Photo file not found locally. Please check your GitHub repository.")
+            st.info("💡 Photo is saved on GitHub but not yet synced to this local session. You can view it in your 'quality_photos' folder on GitHub.")
     else:
-        st.info("No photos captured yet.")
+        st.info("No photos captured yet. Use the camera above to add a photo to a record.")
