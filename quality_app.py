@@ -85,3 +85,24 @@ if os.path.exists(QUALITY_LOG):
     df_view = pd.read_csv(QUALITY_LOG).reindex(columns=HEADERS)
     st.subheader("📊 Recent Inspection Records")
     st.dataframe(df_view.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+    # --- 5. PHOTO GALLERY ---
+st.divider()
+if os.path.exists(QUALITY_LOG):
+    st.subheader("🖼️ Quality Photo Gallery")
+    # Filter only records that have a valid photo path
+    photo_df = df_view[df_view['Photo_Path'] != "None"]
+    
+    if not photo_df.empty:
+        # Create a dropdown to select a Job Code to view its photo
+        selected_log = st.selectbox("Select Record to View Photo", 
+                                    photo_df['Timestamp'] + " - " + photo_df['Job_Code'])
+        
+        # Find the path for the selected record
+        path_to_show = photo_df[photo_df['Timestamp'] + " - " + photo_df['Job_Code'] == selected_log]['Photo_Path'].values[0]
+        
+        if os.path.exists(path_to_show):
+            st.image(path_to_show, caption=f"Inspection Photo for {selected_log}")
+        else:
+            st.warning("Photo file not found locally. Please check your GitHub repository.")
+    else:
+        st.info("No photos captured yet.")
