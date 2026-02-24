@@ -85,25 +85,36 @@ if os.path.exists(QUALITY_LOG):
     df_view = pd.read_csv(QUALITY_LOG).reindex(columns=HEADERS)
     st.subheader("📊 Recent Inspection Records")
     st.dataframe(df_view.sort_values(by="Timestamp", ascending=False), use_container_width=True)
-    # --- 5. PHOTO GALLERY ---
+   # --- 5. PHOTO GALLERY ---
 st.divider()
 if os.path.exists(QUALITY_LOG):
     st.subheader("🖼️ Quality Photo Gallery")
-    # Filter only records that actually have a photo path saved
-    photo_df = df_view[df_view['Photo_Path'].notna() & (df_view['Photo_Path'] != "None")]
+    
+    # Reload data to ensure we see the latest entries
+    df_gallery = pd.read_csv(QUALITY_LOG)
+    
+    # Filter only records that have a valid photo path
+    photo_df = df_gallery[df_gallery['Photo_Path'].notna() & (df_gallery['Photo_Path'] != "None")]
     
     if not photo_df.empty:
-        # Create a dropdown to select a specific inspection record
-        gallery_list = photo_df['Timestamp'] + " - " + photo_df['Job_Code']
-        selected_log = st.selectbox("Select Record to View Photo", gallery_list)
+        # Create unique labels for the dropdown (Timestamp + Job Code)
+        gallery_options = (photo_df['Timestamp'] + " - " + photo_df['Job_Code']).tolist()
         
-        # Extract the correct path for the selected record
-        path_to_show = photo_df[photo_df['Timestamp'] + " - " + photo_df['Job_Code'] == selected_log]['Photo_Path'].values[0]
+        # This selection will now trigger an immediate refresh of the image below
+        selected_record = st.selectbox("Select Record to View Photo", gallery_options, key="gallery_selector")
         
-        # Verify the file exists on the server before trying to open it
+        # Get the specific path for the selected record
+        selected_row = photo_df[(photo_df['Timestamp'] + " - " + photo_df['Job_Code']) == selected_record]
+        path_to_show = selected_row['Photo_Path'].values[0]
+        
+        # Display the image
         if isinstance(path_to_show, str) and os.path.exists(path_to_show):
-            st.image(path_to_show, caption=f"Inspection Photo for {selected_log}", use_container_width=True)
+            st.image(path_to_show, caption=f"Inspection Detail: {selected_record}", use_container_width=True)
+            
+            # Optional: Add a download button for the specific photo
+            with open(path_to_show, "rb") as file:
+                st.download_button(label="💾 Download This Photo", data=file, file_name=os.path.basename(path_to_show), mime="image/png")
         else:
-            st.info("💡 Photo is saved on GitHub but not yet synced to this local session. You can view it in your 'quality_photos' folder on GitHub.")
+            st.info("💡 Photo is currently syncing from GitHub. If it doesn't appear in 10 seconds, please refresh the page.")
     else:
-        st.info("No photos captured yet. Use the camera above to add a photo to a record.")
+        st.info("No photos captured yet. Use the camera above to add a photo to an inspection.")
