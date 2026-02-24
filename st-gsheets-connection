@@ -1,0 +1,107 @@
+import streamlit as st
+from streamlit_gsheets import GSheetsConnection
+import pandas as pd
+from datetime import datetime, timedelta
+import base64
+from io import BytesIO
+from PIL import Image
+import extra_streamlit_components as cookie_manager
+
+# --- 1. DATABASE CONNECTION ---
+# Connects to the Google Sheet using the secrets you just saved
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# --- 2. CONFIG & DATA ---
+inspectors = ["Prasanth", "RamaSai", "Subodth", "Naresh", "Ravindra"]
+tests = ["Marking", "Fitup", "Nozzle Orientation", "PMI", "Hydrotest", "DP Test", "FAT"]
+
+# Fetch existing Job Codes from the Google Sheet (Master List)
+try:
+    # Assuming you have a sheet named 'Jobs' in your database
+    jobs_df = conn.read(worksheet="Jobs", ttl="1m")
+    job_list = jobs_df["Job_Code"].tolist()
+except:
+    job_list = ["SSR501", "SSR502", "Vessel-101"] # Fallback if sheet not found
+
+# --- 3. PERSISTENT LOGIN ---
+controller = cookie_manager.CookieManager()
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+all_cookies = controller.get_all()
+if all_cookies and controller.get("bg_quality_login") == "true":
+    st.session_state["authenticated"] = True
+
+if not st.session_state["authenticated"]:
+    st.title("✅ B&G Quality: Secure Access")
+    pwd = st.text_input("Enter Quality Password", type="password")
+    if st.button("Log In"):
+        if pwd == "BGQUALITY": 
+            st.session_state["authenticated"] = True
+            controller.set("bg_quality_login", "true", expires_at=datetime.now() + timedelta(days=30))
+            st.rerun()
+        else: st.error("Access Denied")
+    st.stop()
+
+# --- 4. MAIN INTERFACE ---
+st.title("✅ B&G Quality Master (Permanent DB)")
+tab1, tab2, tab3 = st.tabs(["📸 New Inspection", "📊 View Records", "⚙️ Admin Tool"])
+
+with tab1:
+    with st.form("quality_form", clear_on_submit=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            inspector = st.selectbox("Inspector Name", inspectors)
+            job_code = st.selectbox("Job Code", job_list)
+            test_type = st.selectbox("Inspection Stage", tests)
+        with c2:
+            status = st.radio("Status", ["🟢 Passed", "🔴 Rework Required"])
+            notes = st.text_area("📋 Technical Notes / Observations")
+
+        cam_photo = st.camera_input("Take Live Shopfloor Photo")
+        
+        if st.form_submit_button("Submit to Permanent Database"):
+            # Process Image to string
+            img_str = ""
+            if cam_photo:
+                img = Image.open(cam_photo)
+                buffered = BytesIO()
+                img.save(buffered, format="JPEG")
+                img_str = base64.b64encode(buffered.getvalue()).decode()
+            
+            # Prepare new row
+            new_entry = pd.DataFrame([{
+                "Timestamp": datetime.now().strftime('%Y-%m-%d %H:%M'),
+                "Inspector": inspector,
+                "Job_Code": job_code,
+                "Stage": test_type,
+                "Status": status,
+                "Notes": notes,
+                "Photo_Data": img_str
+            }])
+            
+            # Read existing data and append new entry
+            existing_data = conn.read(worksheet="Quality_Logs")
+            updated_df = pd.concat([existing_data, new_entry], ignore_index=True)
+            
+            # Write back to Google Sheets
+            conn.update(worksheet="Quality_Logs", data=updated_df)
+            st.success(f"Record for {job_code} saved permanently!")
+
+with tab2:
+    st.subheader("Live Database View")
+    try:
+        # Pull fresh data from Google Sheets
+        df = conn.read(worksheet="Quality_Logs", ttl="0")
+        st.dataframe(df.drop(columns=["Photo_Data"]).sort_values(by="Timestamp", ascending=False))
+    except: 
+        st.info("Database is empty or sheet 'Quality_Logs' not found.")
+
+with tab3:
+    st.subheader("🛠️ Admin Override")
+    admin_pwd = st.text_input("Enter Admin Key", type="password")
+    if admin_pwd == "BG2026":
+        st.write("To delete or edit records, please open the Google Sheet directly for safety.")
+        st.link_button("🚀 Open Google Sheet Database", st.secrets["connections"]["gsheets"]["spreadsheet"])extra-streamlit-components
+Pillow
+pandas
