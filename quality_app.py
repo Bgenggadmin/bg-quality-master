@@ -92,16 +92,28 @@ with st.form("quality_form", clear_on_submit=True):
 st.divider()
 if not df.empty:
     st.subheader("📋 Quality Audit History")
-    # This only displays the 6 columns that actually have data
-    display_df = df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]]
+    
+    # 1. We force the app to only look at these specific columns
+    valid_columns = ["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]
+    
+    # 2. Filter the dataframe to only include these columns (avoids 'None' columns)
+    # We use 'errors="ignore"' just in case one of these is missing in the file
+    display_df = df.reindex(columns=valid_columns)
+    
+    # 3. Show the clean table
     st.dataframe(display_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
     
     st.subheader("🖼️ Photo Gallery")
     view_job = st.selectbox("Filter Photos by Job", ["-- Select --"] + list(df['Job_Code'].unique()))
     if view_job != "-- Select --":
-        for _, row in df[df['Job_Code'] == view_job].iterrows():
-            if isinstance(row['Photo'], str) and len(row['Photo']) > 50:
+        # Filter data for the selected job
+        job_data = df[df['Job_Code'] == view_job]
+        for _, row in job_data.iterrows():
+            # Check if photo exists and is not "No Photo" or empty
+            if pd.notnull(row.get('Photo')) and len(str(row['Photo'])) > 100:
                 st.write(f"**Stage:** {row['Stage']} | **Status:** {row['Status']}")
-                # Decoding the photo for display
-                st.image(base64.b64decode(row['Photo']), width=450)
+                try:
+                    st.image(base64.b64decode(row['Photo']), width=450)
+                except:
+                    st.warning("Could not display this image.")
                 st.divider()
