@@ -11,6 +11,7 @@ from PIL import Image
 # --- 1. SETUP ---
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
+# The Raw URL for your production logs
 RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
 
 try:
@@ -44,40 +45,42 @@ def get_production_jobs():
         return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
     except: return []
 
+# Load data and prepare dropdown lists
 df = load_data()
 job_list = get_production_jobs()
 existing_inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
 existing_stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
 
 # --- 3. INPUT FORM ---
-# Toggle for "New Entry Mode" to keep the UI clean
-new_mode = st.toggle("✨ Add New Inspector/Stage/Job (Manual Typing Mode)")
-
 with st.form("quality_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     
     with col1:
-        if new_mode:
-            job_code = st.text_input("Type New Job Code").upper()
-            inspector = st.text_input("Type New Inspector Name")
-        else:
-            job_code = st.selectbox("Select Job Code", ["-- Select --"] + job_list)
-            inspector = st.selectbox("Select Inspector", ["-- Select --"] + existing_inspectors)
+        # JOB CODE SELECTION
+        j_sel = st.selectbox("Job Code", ["-- Select --", "➕ Add New"] + job_list)
+        # ONLY SHOWS TYPING BOX IF "Add New" IS PICKED
+        job_code = st.text_input("Type New Job Code") if j_sel == "➕ Add New" else j_sel
+        
+        # INSPECTOR SELECTION
+        i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + existing_inspectors)
+        # ONLY SHOWS TYPING BOX IF "Add New" IS PICKED
+        inspector = st.text_input("Type New Inspector Name") if i_sel == "➕ Add New" else i_sel
         
     with col2:
-        if new_mode:
-            stage = st.text_input("Type New Inspection Stage")
-        else:
-            stage = st.selectbox("Select Stage", ["-- Select --"] + existing_stages)
-            
+        # STAGE SELECTION
+        s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + existing_stages)
+        # ONLY SHOWS TYPING BOX IF "Add New" IS PICKED
+        stage = st.text_input("Type New Stage Name") if s_sel == "➕ Add New" else s_sel
+        
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
     cam_photo = st.camera_input("Capture Evidence Photo")
     
     if st.form_submit_button("🚀 Submit & Sync"):
+        # Check for incomplete selections
         if any(v in ["-- Select --", "", None] for v in [job_code, inspector, stage]):
-            st.error("❌ Please fill all fields before submitting.")
+            st.error("❌ Fill all fields. If you picked 'Add New', you must type in the box that appeared.")
         else:
             img_str = ""
             if cam_photo:
@@ -87,4 +90,19 @@ with st.form("quality_form", clear_on_submit=True):
                 img_str = base64.b64encode(buffered.getvalue()).decode()
             
             new_row = pd.DataFrame([{
-                "Timestamp": datetime.now(IST).strftime('%Y-%m-%d
+                "Timestamp": datetime.now(IST).strftime('%Y-%m-%d %H:%M'),
+                "Inspector": inspector, "Job_Code": job_code, "Stage": stage,
+                "Status": status, "Notes": remarks, "Photo": img_str
+            }])
+            
+            updated_df = pd.concat([df, new_row], ignore_index=True)
+            updated_df.to_csv(DB_FILE, index=False)
+            if save_to_github(updated_df):
+                st.success(f"✅ Saved Record for {job_code}!")
+                st.rerun()
+
+# --- 4. HISTORY ---
+st.divider()
+if not df.empty:
+    st.subheader("📜 Recent History")
+    st.dataframe(df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
