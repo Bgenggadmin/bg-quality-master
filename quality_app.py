@@ -8,23 +8,22 @@ from github import Github
 from io import BytesIO
 from PIL import Image
 
-# --- 1. SETUP ---
+# --- 1. SETUP & SECRETS ---
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
-# The Raw URL for your production logs
 RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
 
 try:
     REPO_NAME = st.secrets["GITHUB_REPO"]
     TOKEN = st.secrets["GITHUB_TOKEN"]
 except Exception:
-    st.error("❌ Secrets missing!")
+    st.error("❌ Streamlit Secrets (GITHUB_REPO or GITHUB_TOKEN) are missing!")
     st.stop()
 
-st.set_page_config(page_title="B&G Quality Master", layout="wide")
+st.set_page_config(page_title="B&G Quality Master", layout="wide", page_icon="🛡️")
 st.title("🛡️ B&G Quality Master")
 
-# --- 2. DATA UTILITIES ---
+# --- 2. GITHUB & DATA UTILITIES ---
 def save_to_github(dataframe):
     try:
         g = Github(TOKEN)
@@ -33,54 +32,57 @@ def save_to_github(dataframe):
         contents = repo.get_contents(DB_FILE)
         repo.update_file(contents.path, f"QC Sync {datetime.now(IST)}", csv_content, contents.sha)
         return True
-    except: return False
+    except Exception as e:
+        st.error(f"⚠️ Sync Error: {e}")
+        return False
 
 def load_data():
     if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
+        try: return pd.read_csv(DB_FILE)
+        except: pass
     return pd.DataFrame(columns=["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes", "Photo"])
 
 def get_production_jobs():
     try:
-        return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
+        prod_df = pd.read_csv(RAW_PROD_URL)
+        return sorted(prod_df["Job_Code"].dropna().unique().tolist())
     except: return []
 
-# Load data and prepare dropdown lists
+# Prepare data for dropdowns
 df = load_data()
 job_list = get_production_jobs()
-existing_inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
-existing_stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
+inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
+stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
 
 # --- 3. INPUT FORM ---
 with st.form("quality_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     
     with col1:
-        # JOB CODE SELECTION
+        # JOB CODE
         j_sel = st.selectbox("Job Code", ["-- Select --", "➕ Add New"] + job_list)
-        # ONLY SHOWS TYPING BOX IF "Add New" IS PICKED
-        job_code = st.text_input("Type New Job Code") if j_sel == "➕ Add New" else j_sel
+        # Typing box ONLY reveals if "Add New" is selected
+        job_code = st.text_input("New Job Code") if j_sel == "➕ Add New" else j_sel
         
-        # INSPECTOR SELECTION
-        i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + existing_inspectors)
-        # ONLY SHOWS TYPING BOX IF "Add New" IS PICKED
-        inspector = st.text_input("Type New Inspector Name") if i_sel == "➕ Add New" else i_sel
+        # INSPECTOR
+        i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + inspectors)
+        # Typing box ONLY reveals if "Add New" is selected
+        inspector = st.text_input("New Inspector Name") if i_sel == "➕ Add New" else i_sel
         
     with col2:
-        # STAGE SELECTION
-        s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + existing_stages)
-        # ONLY SHOWS TYPING BOX IF "Add New" IS PICKED
-        stage = st.text_input("Type New Stage Name") if s_sel == "➕ Add New" else s_sel
+        # STAGE
+        s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + stages)
+        # Typing box ONLY reveals if "Add New" is selected
+        stage = st.text_input("New Stage Name") if s_sel == "➕ Add New" else s_sel
         
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
     cam_photo = st.camera_input("Capture Evidence Photo")
     
-    if st.form_submit_button("🚀 Submit & Sync"):
-        # Check for incomplete selections
+    if st.form_submit_button("🚀 Submit & Sync to GitHub"):
         if any(v in ["-- Select --", "", None] for v in [job_code, inspector, stage]):
-            st.error("❌ Fill all fields. If you picked 'Add New', you must type in the box that appeared.")
+            st.error("❌ Fill all fields. If you picked 'Add New', you must type in the box below the dropdown.")
         else:
             img_str = ""
             if cam_photo:
@@ -98,7 +100,7 @@ with st.form("quality_form", clear_on_submit=True):
             updated_df = pd.concat([df, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
-                st.success(f"✅ Saved Record for {job_code}!")
+                st.success(f"✅ Record for {job_code} Secured!")
                 st.rerun()
 
 # --- 4. HISTORY ---
