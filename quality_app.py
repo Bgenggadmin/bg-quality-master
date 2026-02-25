@@ -38,26 +38,25 @@ st.set_page_config(page_title="B&G Quality Master", layout="wide")
 st.title("🛡️ B&G Quality Master")
 
 # --- 2. GITHUB & DATA UTILITIES ---
-def save_to_github(dataframe):
+# Replace your current get_production_jobs with this version:
+def get_production_jobs():
+    # This is the Raw URL for your production logs in the other repository
+    RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
+    
     try:
-        g = Github(TOKEN)
-        repo = g.get_repo(REPO_NAME)
-        csv_content = dataframe.to_csv(index=False)
-        contents = repo.get_contents(DB_FILE)
-        repo.update_file(contents.path, f"QC Update {datetime.now(IST)}", csv_content, contents.sha)
-        return True
+        # We read directly from the URL so it's always the latest data
+        prod_df = pd.read_csv(RAW_PROD_URL)
+        if "Job_Code" in prod_df.columns:
+            # Extract unique jobs, drop empty rows, and sort alphabetically
+            jobs = prod_df["Job_Code"].dropna().unique().tolist()
+            return sorted([str(j) for j in jobs])
     except Exception as e:
-        st.warning(f"⚠️ GitHub Sync Error: {e}. Data saved to local session only.")
-        return False
+        # If the link fails, it will show as an empty list (Manual Entry only)
+        st.sidebar.warning(f"Note: Could not load production jobs. Using manual entry.")
+    return []
 
-def load_data():
-    if os.path.exists(DB_FILE):
-        try:
-            return pd.read_csv(DB_FILE)
-        except: pass
-    return pd.DataFrame(columns=["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes", "Photo"])
-
-df = load_data()
+# Continue with the rest of your script...
+job_list = get_production_jobs()
 
 # --- 3. ADMIN: DELETE ENTRY ---
 st.sidebar.header("⚙️ Admin Controls")
