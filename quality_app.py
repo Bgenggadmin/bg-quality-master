@@ -51,7 +51,16 @@ with st.form("qc_form", clear_on_submit=True):
         supervisor = st.selectbox("QC Inspector", ["Prasanth", "Sunil", "Ravindra", "Naresh", "RamaSai", "Subodth"])
         result = st.radio("Result", ["✅ Pass", "❌ Fail", "⚠️ Rework"], horizontal=True)
     
-    uploaded_file = st.file_uploader("Take/Upload Inspection Photo", type=['jpg', 'jpeg', 'png'])
+    # PHOTO SECTION
+    st.write("📸 **Inspection Proof**")
+    use_camera = st.checkbox("Turn on Camera")
+    
+    if use_camera:
+        # This opens the live camera on mobile or laptop
+        uploaded_file = st.camera_input("Snap a photo of the Job/Heat No")
+    else:
+        # Standard file uploader for gallery photos
+        uploaded_file = st.file_uploader("Upload from Gallery", type=['jpg', 'jpeg', 'png'])
     
     if st.form_submit_button("Submit Inspection"):
         # Photo Sync
