@@ -11,7 +11,6 @@ from PIL import Image
 # --- 1. SETUP ---
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
-# Change this to your actual Production file URL
 RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
 
 try:
@@ -45,45 +44,40 @@ def get_production_jobs():
         return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
     except: return []
 
-# Load data once at the start
 df = load_data()
 job_list = get_production_jobs()
-
-# Get dynamic lists from history
-inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
-stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
+existing_inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
+existing_stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
 
 # --- 3. INPUT FORM ---
+# Toggle for "New Entry Mode" to keep the UI clean
+new_mode = st.toggle("✨ Add New Inspector/Stage/Job (Manual Typing Mode)")
+
 with st.form("quality_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     
     with col1:
-        # 1. JOB CODE
-        j_sel = st.selectbox("Job Code", ["-- Select --", "➕ Add New"] + job_list)
-        j_new = st.text_input("New Job Code (if 'Add New' selected)")
-        
-        # 2. INSPECTOR
-        i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + inspectors)
-        i_new = st.text_input("New Inspector Name (if 'Add New' selected)")
+        if new_mode:
+            job_code = st.text_input("Type New Job Code").upper()
+            inspector = st.text_input("Type New Inspector Name")
+        else:
+            job_code = st.selectbox("Select Job Code", ["-- Select --"] + job_list)
+            inspector = st.selectbox("Select Inspector", ["-- Select --"] + existing_inspectors)
         
     with col2:
-        # 3. STAGE
-        s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + stages)
-        s_new = st.text_input("New Stage Name (if 'Add New' selected)")
-        
+        if new_mode:
+            stage = st.text_input("Type New Inspection Stage")
+        else:
+            stage = st.selectbox("Select Stage", ["-- Select --"] + existing_stages)
+            
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
-    cam_photo = st.camera_input("Take Photo")
+    cam_photo = st.camera_input("Capture Evidence Photo")
     
     if st.form_submit_button("🚀 Submit & Sync"):
-        # Select correct values
-        final_job = j_new if j_sel == "➕ Add New" else j_sel
-        final_ins = i_new if i_sel == "➕ Add New" else i_sel
-        final_stg = s_new if s_sel == "➕ Add New" else s_sel
-        
-        if any(v in ["-- Select --", "", None] for v in [final_job, final_ins, final_stg]):
-            st.error("❌ Fill all fields. If you picked 'Add New', you MUST type in the box.")
+        if any(v in ["-- Select --", "", None] for v in [job_code, inspector, stage]):
+            st.error("❌ Please fill all fields before submitting.")
         else:
             img_str = ""
             if cam_photo:
@@ -93,19 +87,4 @@ with st.form("quality_form", clear_on_submit=True):
                 img_str = base64.b64encode(buffered.getvalue()).decode()
             
             new_row = pd.DataFrame([{
-                "Timestamp": datetime.now(IST).strftime('%Y-%m-%d %H:%M'),
-                "Inspector": final_ins, "Job_Code": final_job, "Stage": final_stg,
-                "Status": status, "Notes": remarks, "Photo": img_str
-            }])
-            
-            updated_df = pd.concat([df, new_row], ignore_index=True)
-            updated_df.to_csv(DB_FILE, index=False)
-            if save_to_github(updated_df):
-                st.success(f"✅ Saved!")
-                st.rerun()
-
-# --- 4. HISTORY ---
-st.divider()
-if not df.empty:
-    st.subheader("📜 Recent Records")
-    st.dataframe(df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
+                "Timestamp": datetime.now(IST).strftime('%Y-%m-%d
