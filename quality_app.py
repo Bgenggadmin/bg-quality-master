@@ -113,3 +113,17 @@ if not df.empty:
                 st.divider()
 else:
     st.info("No records found yet.")
+    # --- ADMIN: DELETE SPECIFIC ENTRY ---
+st.sidebar.divider()
+st.sidebar.subheader("🗑️ Delete Particular Entry")
+if not df.empty:
+    # Create a list of options (Index: Job - Stage)
+    delete_options = [f"{i}: {row['Job_Code']} - {row['Stage']}" for i, row in df.iterrows()]
+    target = st.sidebar.selectbox("Select entry to remove", delete_options)
+    
+    if st.sidebar.button("Delete Selected Entry"):
+        idx = int(target.split(":")[0])
+        df = df.drop(df.index[idx])
+        df.to_csv(DB_FILE, index=False)
+        st.sidebar.success("Entry removed!")
+        st.rerun()
