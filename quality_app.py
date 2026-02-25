@@ -34,15 +34,22 @@ def save_to_github(dataframe):
         return True
     except: return False
 
-def load_data():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
+# CRITICAL FIX: Always load the freshest data from GitHub for the dropdowns
+@st.cache_data(ttl=10) # Refreshes every 10 seconds
+def load_data_fresh():
+    RAW_QC_URL = f"https://raw.githubusercontent.com/{REPO_NAME}/main/{DB_FILE}"
+    try:
+        return pd.read_csv(RAW_QC_URL)
+    except:
+        if os.path.exists(DB_FILE):
+            return pd.read_csv(DB_FILE)
     return pd.DataFrame(columns=["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes", "Photo"])
 
 def get_dynamic_list(df, col, defaults):
     if not df.empty and col in df.columns:
-        found = df[col].dropna().unique().tolist()
-        return sorted(list(set(defaults + [str(x) for x in found if str(x).strip()])))
+        # Get all unique values, clean them, and merge with defaults
+        found = [str(x).strip() for x in df[col].dropna().unique() if str(x).strip() != ""]
+        return sorted(list(set(defaults + found)))
     return sorted(defaults)
 
 def get_production_jobs():
@@ -50,30 +57,26 @@ def get_production_jobs():
         return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
     except: return []
 
-df = load_data()
+# --- 3. REFRESH LISTS ---
+df_main = load_data_fresh()
 job_list = get_production_jobs()
-inspectors = get_dynamic_list(df, "Inspector", ["Subodth", "Prasanth", "RamaSai", "Naresh"])
-stages = get_dynamic_list(df, "Stage", ["RM Inspection", "Marking", "Fit-up", "Welding", "Final Inspection"])
+inspectors = get_dynamic_list(df_main, "Inspector", ["Subodth", "Prasanth", "RamaSai", "Naresh"])
+stages = get_dynamic_list(df_main, "Stage", ["RM Inspection", "Marking", "Fit-up", "Welding", "Final Inspection"])
 
-# --- 3. INPUT FORM ---
-# We use st.container to make sure the "Type" box appears outside the form if needed
+# --- 4. INPUT FORM ---
 with st.form("quality_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     
     with col1:
-        # JOB CODE
         j_sel = st.selectbox("Job Code", ["-- Select --", "➕ Add New"] + job_list)
-        # If Add New is selected, this box will be processed below
-        j_new = st.text_input("New Job Code (if 'Add New' picked)")
+        j_new = st.text_input("Type New Job Code (if 'Add New' picked)")
         
-        # INSPECTOR
         i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + inspectors)
-        i_new = st.text_input("New Inspector Name (if 'Add New' picked)")
+        i_new = st.text_input("Type New Inspector Name (if 'Add New' picked)")
         
     with col2:
-        # STAGE
         s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + stages)
-        s_new = st.text_input("New Stage Name (if 'Add New' picked)")
+        s_new = st.text_input("Type New Stage Name (if 'Add New' picked)")
         
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
@@ -81,14 +84,12 @@ with st.form("quality_form", clear_on_submit=True):
     cam_photo = st.camera_input("Capture Evidence Photo")
     
     if st.form_submit_button("🚀 Submit & Sync"):
-        # LOGIC: Choose between dropdown and typed entry
         final_job = j_new if j_sel == "➕ Add New" else j_sel
         final_ins = i_new if i_sel == "➕ Add New" else i_sel
         final_stg = s_new if s_sel == "➕ Add New" else s_sel
         
-        # CHECK FOR BLANKS
         if any(v in ["-- Select --", "", None] for v in [final_job, final_ins, final_stg]):
-            st.error("❌ Fill all fields. If you picked 'Add New', you must type in the text box below the dropdown.")
+            st.error("❌ Fill all fields. If you picked 'Add New', you MUST type in the text box.")
         else:
             img_str = ""
             if cam_photo:
@@ -103,14 +104,16 @@ with st.form("quality_form", clear_on_submit=True):
                 "Status": status, "Notes": remarks, "Photo": img_str
             }])
             
-            updated_df = pd.concat([df, new_row], ignore_index=True)
+            # Combine current GitHub data with the new entry
+            updated_df = pd.concat([df_main, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
-                st.success(f"✅ Success! {final_job} recorded.")
+                st.success(f"✅ Saved {final_ins} for {final_job}!")
+                st.cache_data.clear() # Force app to see new data immediately
                 st.rerun()
 
-# --- 4. HISTORY ---
+# --- 5. HISTORY ---
 st.divider()
-if not df.empty:
-    st.subheader("📜 Audit History")
-    st.dataframe(df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
+if not df_main.empty:
+    st.subheader("📜 Recent History")
+    st.dataframe(df_main[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
