@@ -11,7 +11,7 @@ from PIL import Image
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
 
-# Matches your requested engineering stages
+# Comprehensive engineering stages for B&G
 STAGE_REFS = {
     "RM Inspection": "Heat No / Plate No",
     "Marking": "Drawing Rev No",
@@ -19,11 +19,9 @@ STAGE_REFS = {
     "Fit-up": "Joint No / Seam No",
     "Welding": "Welder Stamp / ID",
     "Grinding": "Wheel Type used",
-    "Buffing": "Grit Size / Surface RA",
     "DP / LPI": "Report No / Batch No",
     "Hydro Test": "Test Pressure (kg/cm2)",
     "Pneumatic Test": "Test Pressure (kg/cm2)",
-    "Drive Trail Run": "Motor ID / RPM",
     "Final Inspection": "QC Release Note No"
 }
 
@@ -37,12 +35,13 @@ else:
     # Uses exact headers from your GitHub CSV: Timestamp, Inspector, Job_Code, Stage, Status, Notes, Photo
     df = pd.DataFrame(columns=["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes", "Photo"])
 
-# --- 3. SIDEBAR ADMIN (DELETE ENTRY) ---
-st.sidebar.header("⚙️ Admin")
+# --- 3. ADMIN: DELETE ENTRY ---
+st.sidebar.header("⚙️ Admin Controls")
 if not df.empty:
+    st.sidebar.subheader("🗑️ Delete Entry")
     delete_options = [f"{i}: {df.at[i, 'Job_Code']} - {df.at[i, 'Stage']}" for i in df.index[::-1]]
     target = st.sidebar.selectbox("Select entry to remove", delete_options)
-    if st.sidebar.button("Delete Selected Entry"):
+    if st.sidebar.button("Confirm Delete"):
         idx = int(target.split(":")[0])
         df = df.drop(idx)
         df.to_csv(DB_FILE, index=False)
@@ -57,10 +56,9 @@ with st.form("quality_form", clear_on_submit=True):
         inspector = st.selectbox("Inspector", ["Subodth", "Prasanth", "RamaSai", "Naresh"])
         stage = st.selectbox("Stage", list(STAGE_REFS.keys()))
     with col2:
-        # We save 'Reference' and 'Remarks' into the 'Notes' column to match your CSV
         ref_data = st.text_input(f"Reference: {STAGE_REFS[stage]}")
-        result = st.radio("Result", ["🟢 Passed", "🟡 Rework", "🔴 Failed"])
-        remarks = st.text_area("Observations")
+        status = st.radio("Result", ["🟢 Passed", "🟡 Rework", "🔴 Failed"])
+        remarks = st.text_area("Remarks")
 
     cam_photo = st.camera_input("Take Photo")
     
@@ -72,7 +70,7 @@ with st.form("quality_form", clear_on_submit=True):
             img.save(buffered, format="JPEG")
             img_str = base64.b64encode(buffered.getvalue()).decode()
         
-        # Combined Reference and Remarks for the 'Notes' column
+        # Combine Reference and Remarks into the 'Notes' column for the CSV
         full_notes = f"{ref_data} | {remarks}"
         
         new_row = pd.DataFrame([{
@@ -80,7 +78,7 @@ with st.form("quality_form", clear_on_submit=True):
             "Inspector": inspector,
             "Job_Code": job_code,
             "Stage": stage,
-            "Status": result,
+            "Status": status,
             "Notes": full_notes,
             "Photo": img_str
         }])
@@ -90,18 +88,20 @@ with st.form("quality_form", clear_on_submit=True):
         st.success("Record Saved!")
         st.rerun()
 
-# --- 5. CLEAN AUDIT HISTORY ---
+# --- 5. CLEAN AUDIT HISTORY & PHOTOS ---
 st.divider()
 if not df.empty:
     st.subheader("📋 Quality Audit History")
-    # Displays the exact columns in your CSV: Timestamp, Inspector, Job_Code, Stage, Status, Notes
-    st.dataframe(df.drop(columns=["Photo"]).sort_values(by="Timestamp", ascending=False), use_container_width=True)
+    # This only displays the 6 columns that actually have data
+    display_df = df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]]
+    st.dataframe(display_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
     
-    st.subheader("🖼️ Visual Traceability")
-    view_job = st.selectbox("Filter by Job", ["-- Select --"] + list(df['Job_Code'].unique()))
+    st.subheader("🖼️ Photo Gallery")
+    view_job = st.selectbox("Filter Photos by Job", ["-- Select --"] + list(df['Job_Code'].unique()))
     if view_job != "-- Select --":
         for _, row in df[df['Job_Code'] == view_job].iterrows():
-            if isinstance(row['Photo'], str) and len(row['Photo']) > 10:
+            if isinstance(row['Photo'], str) and len(row['Photo']) > 50:
                 st.write(f"**Stage:** {row['Stage']} | **Status:** {row['Status']}")
+                # Decoding the photo for display
                 st.image(base64.b64decode(row['Photo']), width=450)
                 st.divider()
