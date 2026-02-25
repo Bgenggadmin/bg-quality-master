@@ -17,7 +17,7 @@ try:
     REPO_NAME = st.secrets["GITHUB_REPO"]
     TOKEN = st.secrets["GITHUB_TOKEN"]
 except Exception:
-    st.error("❌ Secrets missing in Streamlit Settings!")
+    st.error("❌ GitHub Secrets missing! Please check Streamlit Cloud settings.")
     st.stop()
 
 st.set_page_config(page_title="B&G Quality Master", layout="wide")
@@ -32,7 +32,8 @@ def save_to_github(dataframe):
         contents = repo.get_contents(DB_FILE)
         repo.update_file(contents.path, f"QC Sync {datetime.now(IST)}", csv_content, contents.sha)
         return True
-    except: return False
+    except:
+        return False
 
 def load_data():
     if os.path.exists(DB_FILE):
@@ -41,10 +42,12 @@ def load_data():
 
 def get_production_jobs():
     try:
-        return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
-    except: return []
+        prod_df = pd.read_csv(RAW_PROD_URL)
+        return sorted(prod_df["Job_Code"].dropna().unique().tolist())
+    except:
+        return []
 
-# Load data and prepare lists
+# Load data for lists
 df = load_data()
 job_list = get_production_jobs()
 inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
@@ -71,18 +74,20 @@ with st.form("quality_form", clear_on_submit=True):
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
-    cam_photo = st.camera_input("Capture Evidence Photo")
+    cam_photo = st.camera_input("Capture Photo")
     
-    # THE ONE AND ONLY SAVE BUTTON
-    if st.form_submit_button("🚀 Submit & Sync to GitHub"):
-        # Logic to pick typed name or dropdown selection
+    # THE SUBMIT BUTTON
+    submit_btn = st.form_submit_button("🚀 Submit & Sync to GitHub")
+
+    if submit_btn:
+        # Determine final values
         final_job = j_new if j_sel == "➕ Add New" else j_sel
         final_ins = i_new if i_sel == "➕ Add New" else i_sel
         final_stg = s_new if s_sel == "➕ Add New" else s_sel
         
-        # Validation: Check if anything is still "-- Select --" or empty
+        # Validation
         if any(v in ["-- Select --", "", None] for v in [final_job, final_ins, final_stg]):
-            st.error("❌ Please fill all fields! If you picked 'Add New', type the name in the box.")
+            st.error("❌ Fill all fields. If you picked 'Add New', you must type in the box.")
         else:
             img_str = ""
             if cam_photo:
@@ -93,14 +98,18 @@ with st.form("quality_form", clear_on_submit=True):
             
             new_row = pd.DataFrame([{
                 "Timestamp": datetime.now(IST).strftime('%Y-%m-%d %H:%M'),
-                "Inspector": final_ins, "Job_Code": final_job, "Stage": final_stg,
-                "Status": status, "Notes": remarks, "Photo": img_str
+                "Inspector": final_ins,
+                "Job_Code": final_job,
+                "Stage": final_stg,
+                "Status": status,
+                "Notes": remarks,
+                "Photo": img_str
             }])
             
             updated_df = pd.concat([df, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
-                st.success(f"✅ Record for {final_job} Saved Successfully!")
+                st.success("✅ Saved Successfully!")
                 st.rerun()
 
 # --- 4. HISTORY ---
