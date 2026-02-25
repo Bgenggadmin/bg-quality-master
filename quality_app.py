@@ -1,3 +1,6 @@
+import streamlit as st
+import pandas as pd
+# ... other imports
 # --- 3. UI & FORM ---
 st.title("🛡️ B&G Quality Control")
 
