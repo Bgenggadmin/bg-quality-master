@@ -1,60 +1,116 @@
 import streamlit as st
 import pandas as pd
-# ... other imports
-# --- 3. UI & FORM ---
-st.title("🛡️ B&G Quality Control")
+from datetime import datetime
+import pytz
+import os
+import base64
+from io import BytesIO
+from PIL import Image
 
-# 1. FIELD INPUTS
-job_code = st.text_input("Job Code (e.g. 2KL ANFD_1361)")
-col1, col2 = st.columns(2)
-with col1:
-    activity = st.selectbox("Inspection Activity", ["Material Inward", "Marking", "Cutting", "Fit-up", "Welding", "DP Test", "Hydro Test", "Final Painting"])
-    heat_no = st.text_input("Heat Number / Batch No")
-with col2:
-    supervisor = st.selectbox("QC Inspector", ["Prasanth", "Sunil", "Ravindra", "Naresh", "RamaSai", "Subodth"])
-    result = st.radio("Result", ["✅ Pass", "❌ Fail", "⚠️ Rework"], horizontal=True)
+# --- 1. CONFIGURATION & TIMEZONE ---
+IST = pytz.timezone('Asia/Kolkata')
+DB_FILE = "bg_master_logs.csv"
 
-notes = st.text_area("Inspection Notes", placeholder="Mention any defects or observations here...")
+# Industrial Units & Consumables Mapping
+ACTIVITY_DATA = {
+    "Welding": {"unit": "Meters (Mts)", "consumable": "Electrode Batch No."},
+    "Grinding": {"unit": "Mts / Nos", "consumable": "Wheel Type (SS/MS)"},
+    "Buffing": {"unit": "Sq Ft", "consumable": "Grit Size (60-400)"},
+    "Drilling": {"unit": "Quantity (Nos)", "consumable": "Bit Size"},
+    "Cutting (CNC/Plasma)": {"unit": "Meters (Mts)", "consumable": "Nozzle/Gas Type"},
+    "RM Inspection": {"unit": "Qty (Nos)", "consumable": "Heat / Plate No."}
+}
 
-# 2. PHOTO SECTION (Moved outside for stability)
-st.write("📸 **Inspection Proof**")
-use_camera = st.toggle("Turn on Camera") # Toggle is better than checkbox for hardware
-uploaded_file = None
+st.set_page_config(page_title="B&G Master Pro", layout="wide")
+st.title("🏗️ B&G Engineering Master Monitor")
 
-if use_camera:
-    uploaded_file = st.camera_input("Snap a photo")
-else:
-    uploaded_file = st.file_uploader("Upload from Gallery", type=['jpg', 'jpeg', 'png'])
+# --- 2. DATA LOADING HELPER ---
+def get_data():
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame()
 
-# 3. SUBMIT BUTTON
-if st.button("🚀 Submit Inspection Report", use_container_width=True):
-    if not job_code:
-        st.error("Please enter a Job Code before submitting.")
-    else:
-        photo_url = "No Photo"
-        if uploaded_file:
-            photo_url = save_photo_to_github(uploaded_file, job_code)
+# --- 3. ENTRY FORM ---
+with st.form("master_form", clear_on_submit=True):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("📋 Primary Details")
+        supervisor = st.selectbox("Supervisor / Inspector", ["Prasanth", "RamaSai", "Subodth", "Naresh"])
+        worker_cat = st.selectbox("Category", ["Welder (IBR)", "Fitter", "Grinder", "Quality Inspector"])
+        job_code = st.text_input("Job Code (e.g., SSR501)", placeholder="Enter Project ID")
+        activity = st.selectbox("Activity Type", list(ACTIVITY_DATA.keys()))
+
+    with col2:
+        st.subheader("🛠️ Technical Specs")
+        unit = ACTIVITY_DATA[activity]["unit"]
+        cons_label = ACTIVITY_DATA[activity]["consumable"]
         
-        new_row = {
-            "Timestamp": datetime.now(IST).strftime("%Y-%m-%d %H:%M:%S"),
-            "Job_Code": job_code,
+        output_val = st.number_input(f"Output ({unit})", min_value=0.0)
+        traceability = st.text_input(f"Traceability: {cons_label}")
+        notes = st.text_area("Technical Remarks (Material, Batch, Soap type etc.)")
+
+    # Photo Capture (Optimized for iPhone/Browser)
+    st.subheader("📸 Evidence Capture")
+    cam_photo = st.camera_input("Take Photo of Heat No. / Work Progress")
+    
+    if st.form_submit_button("🚀 Submit Secure Record"):
+        # Time Management
+        timestamp = datetime.now(IST).strftime('%Y-%m-%d %H:%M')
+        
+        # Image Processing
+        img_str = ""
+        if cam_photo:
+            img = Image.open(cam_photo)
+            buffered = BytesIO()
+            img.save(buffered, format="JPEG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+
+        # Prepare Row
+        new_row = pd.DataFrame([{
+            "Timestamp": timestamp,
+            "Job": job_code.upper(),
             "Activity": activity,
-            "Heat_Number": heat_no,
-            "Inspection_Result": result,
             "Supervisor": supervisor,
-            "Notes": notes,
-            "Photo_URL": photo_url
-        }
+            "Category": worker_cat,
+            "Output": output_val,
+            "Unit": unit,
+            "Traceability": traceability,
+            "Remarks": notes,
+            "Photo": img_str
+        }])
         
-        # Save and Sync
-        if os.path.exists(LOGS_FILE):
-            df = pd.read_csv(LOGS_FILE)
-        else:
-            df = pd.DataFrame(columns=HEADERS)
-            
-        df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-        df.to_csv(LOGS_FILE, index=False)
-        sync_to_github(LOGS_FILE, f"QC Entry: {job_code} - {activity}")
+        # Save Logic
+        df = get_data()
+        df = pd.concat([df, new_row], ignore_index=True)
+        df.to_csv(DB_FILE, index=False)
         
+        st.success(f"✅ Record Secured for {job_code} at {timestamp}")
         st.balloons()
-        st.success(f"✅ {activity} for {job_code} Recorded successfully!")
+        st.rerun()
+
+# --- 4. PROJECT SUMMARY & ANALYTICS ---
+st.divider()
+df_main = get_data()
+
+if not df_main.empty:
+    tab1, tab2 = st.tabs(["📊 Project Summary", "🔍 Detailed Logs"])
+    
+    with tab1:
+        st.subheader("Material & Progress Summary")
+        summary = df_main.groupby(['Job', 'Activity']).agg({
+            'Output': 'sum',
+            'Traceability': lambda x: ', '.join(set(x.dropna().astype(str))),
+            'Timestamp': 'count'
+        }).rename(columns={'Timestamp': 'Entries'})
+        st.table(summary)
+        
+    with tab2:
+        # Hide photo string from table for clarity
+        st.dataframe(df_main.drop(columns=['Photo']).sort_values(by="Timestamp", ascending=False), use_container_width=True)
+        
+        # Export Option
+        csv = df_main.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 Download Master Data (Excel)", csv, f"BG_Master_{datetime.now(IST).strftime('%Y%m%d')}.csv")
+else:
+    st.info("No records found in shopfloor memory.")
