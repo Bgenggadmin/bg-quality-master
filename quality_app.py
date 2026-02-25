@@ -8,7 +8,7 @@ from github import Github
 from io import BytesIO
 from PIL import Image
 
-# --- 1. SETUP & SECRETS ---
+# --- 1. SETUP ---
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
 RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
@@ -17,13 +17,13 @@ try:
     REPO_NAME = st.secrets["GITHUB_REPO"]
     TOKEN = st.secrets["GITHUB_TOKEN"]
 except Exception:
-    st.error("❌ Streamlit Secrets (GITHUB_REPO or GITHUB_TOKEN) are missing!")
+    st.error("❌ Secrets missing in Streamlit Settings!")
     st.stop()
 
-st.set_page_config(page_title="B&G Quality Master", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="B&G Quality Master", layout="wide")
 st.title("🛡️ B&G Quality Master")
 
-# --- 2. GITHUB & DATA UTILITIES ---
+# --- 2. DATA UTILITIES ---
 def save_to_github(dataframe):
     try:
         g = Github(TOKEN)
@@ -32,23 +32,19 @@ def save_to_github(dataframe):
         contents = repo.get_contents(DB_FILE)
         repo.update_file(contents.path, f"QC Sync {datetime.now(IST)}", csv_content, contents.sha)
         return True
-    except Exception as e:
-        st.error(f"⚠️ Sync Error: {e}")
-        return False
+    except: return False
 
 def load_data():
     if os.path.exists(DB_FILE):
-        try: return pd.read_csv(DB_FILE)
-        except: pass
+        return pd.read_csv(DB_FILE)
     return pd.DataFrame(columns=["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes", "Photo"])
 
 def get_production_jobs():
     try:
-        prod_df = pd.read_csv(RAW_PROD_URL)
-        return sorted(prod_df["Job_Code"].dropna().unique().tolist())
+        return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
     except: return []
 
-# Prepare data for dropdowns
+# Load data and prepare lists
 df = load_data()
 job_list = get_production_jobs()
 inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
@@ -61,28 +57,32 @@ with st.form("quality_form", clear_on_submit=True):
     with col1:
         # JOB CODE
         j_sel = st.selectbox("Job Code", ["-- Select --", "➕ Add New"] + job_list)
-        # Typing box ONLY reveals if "Add New" is selected
-        job_code = st.text_input("New Job Code") if j_sel == "➕ Add New" else j_sel
+        j_new = st.text_input("Type New Job Code") if j_sel == "➕ Add New" else ""
         
         # INSPECTOR
         i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + inspectors)
-        # Typing box ONLY reveals if "Add New" is selected
-        inspector = st.text_input("New Inspector Name") if i_sel == "➕ Add New" else i_sel
+        i_new = st.text_input("Type New Inspector Name") if i_sel == "➕ Add New" else ""
         
     with col2:
         # STAGE
         s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + stages)
-        # Typing box ONLY reveals if "Add New" is selected
-        stage = st.text_input("New Stage Name") if s_sel == "➕ Add New" else s_sel
+        s_new = st.text_input("Type New Stage Name") if s_sel == "➕ Add New" else ""
         
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
     cam_photo = st.camera_input("Capture Evidence Photo")
     
+    # THE ONE AND ONLY SAVE BUTTON
     if st.form_submit_button("🚀 Submit & Sync to GitHub"):
-        if any(v in ["-- Select --", "", None] for v in [job_code, inspector, stage]):
-            st.error("❌ Fill all fields. If you picked 'Add New', you must type in the box below the dropdown.")
+        # Logic to pick typed name or dropdown selection
+        final_job = j_new if j_sel == "➕ Add New" else j_sel
+        final_ins = i_new if i_sel == "➕ Add New" else i_sel
+        final_stg = s_new if s_sel == "➕ Add New" else s_sel
+        
+        # Validation: Check if anything is still "-- Select --" or empty
+        if any(v in ["-- Select --", "", None] for v in [final_job, final_ins, final_stg]):
+            st.error("❌ Please fill all fields! If you picked 'Add New', type the name in the box.")
         else:
             img_str = ""
             if cam_photo:
@@ -93,14 +93,14 @@ with st.form("quality_form", clear_on_submit=True):
             
             new_row = pd.DataFrame([{
                 "Timestamp": datetime.now(IST).strftime('%Y-%m-%d %H:%M'),
-                "Inspector": inspector, "Job_Code": job_code, "Stage": stage,
+                "Inspector": final_ins, "Job_Code": final_job, "Stage": final_stg,
                 "Status": status, "Notes": remarks, "Photo": img_str
             }])
             
             updated_df = pd.concat([df, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
-                st.success(f"✅ Record for {job_code} Secured!")
+                st.success(f"✅ Record for {final_job} Saved Successfully!")
                 st.rerun()
 
 # --- 4. HISTORY ---
