@@ -93,32 +93,35 @@ st.divider()
 if not df.empty:
     st.subheader("📋 Quality Audit History")
     
-    # Define exactly which columns we want to see
-    required_cols = ["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]
+    # List of columns we WANT to see
+    desired_cols = ["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]
     
-    # Filter the dataframe to ONLY show these columns (removes the 'None' columns)
-    # We use list intersection to ensure we only pick columns that actually exist
-    existing_cols = [c for c in required_cols if c in df.columns]
-    display_df = df[existing_cols]
+    # This checks which of our desired columns actually exist in your CSV
+    # It prevents the app from showing "None" for missing columns
+    available_cols = [c for c in desired_cols if c in df.columns]
     
-    st.dataframe(display_df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+    # Sort by time and show only available columns
+    display_df = df[available_cols].sort_values(by="Timestamp", ascending=False)
+    st.dataframe(display_df, use_container_width=True)
     
     st.subheader("🖼️ Photo Gallery")
-    view_job = st.selectbox("Filter Photos by Job", ["-- Select --"] + list(df['Job_Code'].unique()))
+    # Clean up the list of Job Codes to remove any 'nan' or empty values
+    unique_jobs = [j for j in df['Job_Code'].unique() if str(j) != 'nan']
+    view_job = st.selectbox("Filter Photos by Job", ["-- Select --"] + unique_jobs)
     
     if view_job != "-- Select --":
         # Filter rows for the selected job
         job_data = df[df['Job_Code'] == view_job]
         
         for _, row in job_data.iterrows():
-            # Check if photo exists and looks like a real base64 string
+            # Check if photo exists and is a valid long string (base64)
             photo_data = row.get('Photo')
             if isinstance(photo_data, str) and len(photo_data) > 100:
                 st.write(f"**Stage:** {row['Stage']} | **Status:** {row['Status']} | **Time:** {row['Timestamp']}")
                 try:
                     st.image(base64.b64decode(photo_data), width=500)
                 except Exception:
-                    st.error("Error displaying this image.")
+                    st.warning(f"Could not load image for {row['Stage']}")
                 st.divider()
             else:
-                st.info(f"No photo available for {row['Stage']} ({row['Timestamp']})")
+                st.info(f"No photo recorded for {row['Stage']} on {row['Timestamp']}")
