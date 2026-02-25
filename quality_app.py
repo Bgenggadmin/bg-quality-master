@@ -8,7 +8,7 @@ from github import Github
 from io import BytesIO
 from PIL import Image
 
-# --- 1. SETUP ---
+# --- 1. SETUP & SECRETS ---
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
 RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
@@ -17,7 +17,7 @@ try:
     REPO_NAME = st.secrets["GITHUB_REPO"]
     TOKEN = st.secrets["GITHUB_TOKEN"]
 except Exception:
-    st.error("❌ GitHub Secrets missing! Please check Streamlit Cloud settings.")
+    st.error("❌ Secrets missing in Streamlit Cloud!")
     st.stop()
 
 st.set_page_config(page_title="B&G Quality Master", layout="wide")
@@ -47,7 +47,7 @@ def get_production_jobs():
     except:
         return []
 
-# Load data for lists
+# Prepare data for dropdowns
 df = load_data()
 job_list = get_production_jobs()
 inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
@@ -58,36 +58,39 @@ with st.form("quality_form", clear_on_submit=True):
     col1, col2 = st.columns(2)
     
     with col1:
-        # JOB CODE
+        # JOB CODE SELECTION
         j_sel = st.selectbox("Job Code", ["-- Select --", "➕ Add New"] + job_list)
-        j_new = st.text_input("Type New Job Code") if j_sel == "➕ Add New" else ""
+        # Only shows row to enter if 'Add New' is picked
+        j_new = st.text_input("New Job Code Name") if j_sel == "➕ Add New" else ""
         
-        # INSPECTOR
+        # INSPECTOR SELECTION
         i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + inspectors)
-        i_new = st.text_input("Type New Inspector Name") if i_sel == "➕ Add New" else ""
+        # Only shows row to enter if 'Add New' is picked
+        i_new = st.text_input("New Inspector Name") if i_sel == "➕ Add New" else ""
         
     with col2:
-        # STAGE
+        # STAGE SELECTION
         s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + stages)
-        s_new = st.text_input("Type New Stage Name") if s_sel == "➕ Add New" else ""
+        # Only shows row to enter if 'Add New' is picked
+        s_new = st.text_input("New Stage Name") if s_sel == "➕ Add New" else ""
         
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
-    cam_photo = st.camera_input("Capture Photo")
+    cam_photo = st.camera_input("Capture Evidence Photo")
     
-    # THE SUBMIT BUTTON
+    # THE MAIN SUBMIT BUTTON
     submit_btn = st.form_submit_button("🚀 Submit & Sync to GitHub")
 
     if submit_btn:
-        # Determine final values
+        # Determine final values based on Add New logic
         final_job = j_new if j_sel == "➕ Add New" else j_sel
         final_ins = i_new if i_sel == "➕ Add New" else i_sel
         final_stg = s_new if s_sel == "➕ Add New" else s_sel
         
-        # Validation
+        # Check for empty data
         if any(v in ["-- Select --", "", None] for v in [final_job, final_ins, final_stg]):
-            st.error("❌ Fill all fields. If you picked 'Add New', you must type in the box.")
+            st.error("❌ Please fill all fields. If you picked 'Add New', type the name in the box.")
         else:
             img_str = ""
             if cam_photo:
@@ -109,11 +112,11 @@ with st.form("quality_form", clear_on_submit=True):
             updated_df = pd.concat([df, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
-                st.success("✅ Saved Successfully!")
+                st.success("✅ Record Successfully Saved!")
                 st.rerun()
 
 # --- 4. HISTORY ---
 st.divider()
 if not df.empty:
-    st.subheader("📜 Recent History")
+    st.subheader("📜 Recent Records")
     st.dataframe(df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
