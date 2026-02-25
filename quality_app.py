@@ -17,7 +17,7 @@ try:
     REPO_NAME = st.secrets["GITHUB_REPO"]
     TOKEN = st.secrets["GITHUB_TOKEN"]
 except Exception:
-    st.error("❌ Secrets missing in Streamlit Cloud!")
+    st.error("❌ Secrets missing!")
     st.stop()
 
 st.set_page_config(page_title="B&G Quality Master", layout="wide")
@@ -40,55 +40,69 @@ def load_data():
 
 def get_production_jobs():
     try:
-        pdf = pd.read_csv(RAW_PROD_URL)
-        return sorted(pdf["Job_Code"].dropna().unique().tolist())
+        return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
     except: return []
 
+# --- 3. SESSION STATE FOR DYNAMIC UPDATES ---
 df = load_data()
-job_list = get_production_jobs()
-inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
-stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
+if 'jobs' not in st.session_state:
+    st.session_state.jobs = get_production_jobs()
+if 'inspectors' not in st.session_state:
+    st.session_state.inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
+if 'stages' not in st.session_state:
+    st.session_state.stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
 
-# --- 3. UI LAYOUT ---
+# --- 4. THE "ADD NEW" SECTION (With Buttons) ---
 st.title("🛡️ B&G Quality Master")
 
-# SEPARATE SECTION FOR ADDING NEW DATA
-with st.expander("➕ ADD NEW (Inspector / Stage / Job)"):
-    new_col1, new_col2, new_col3 = st.columns(3)
-    new_job = new_col1.text_input("New Job Code")
-    new_ins = new_col2.text_input("New Inspector")
-    new_stg = new_col3.text_input("New Stage")
-    st.info("Once you submit a log below using these typed names, they will appear in the dropdowns permanently.")
+with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
+    c1, c2, c3 = st.columns(3)
+    
+    # ADD NEW JOB
+    nj = c1.text_input("New Job Code")
+    if c1.button("Add Job"):
+        if nj and nj not in st.session_state.jobs:
+            st.session_state.jobs.append(nj.upper())
+            st.session_state.jobs.sort()
+            st.success(f"Added {nj}")
+    
+    # ADD NEW INSPECTOR
+    ni = c2.text_input("New Inspector")
+    if c2.button("Add Inspector"):
+        if ni and ni not in st.session_state.inspectors:
+            st.session_state.inspectors.append(ni)
+            st.session_state.inspectors.sort()
+            st.success(f"Added {ni}")
+            
+    # ADD NEW STAGE
+    ns = c3.text_input("New Stage")
+    if c3.button("Add Stage"):
+        if ns and ns not in st.session_state.stages:
+            st.session_state.stages.append(ns)
+            st.session_state.stages.sort()
+            st.success(f"Added {ns}")
 
 st.divider()
 
-# MAIN ENTRY FORM (Dropdowns are now CLEAN)
+# --- 5. MAIN LOGGING FORM ---
 with st.form("main_form", clear_on_submit=True):
     st.subheader("📝 Log Inspection")
-    c1, c2 = st.columns(2)
+    col1, col2 = st.columns(2)
     
-    with c1:
-        # If user typed in the 'Add New' section, use that. Otherwise, use dropdown.
-        job_code = st.selectbox("Select Job", ["-- Select --"] + job_list) if not new_job else new_job
-        if new_job: st.caption(f"Using New Job: {new_job}")
-            
-        inspector = st.selectbox("Select Inspector", ["-- Select --"] + inspectors) if not new_ins else new_ins
-        if new_ins: st.caption(f"Using New Inspector: {new_ins}")
-
-    with c2:
-        stage = st.selectbox("Select Stage", ["-- Select --"] + stages) if not new_stg else new_stg
-        if new_stg: st.caption(f"Using New Stage: {new_stg}")
+    with col1:
+        job_code = st.selectbox("Select Job Code", ["-- Select --"] + st.session_state.jobs)
+        inspector = st.selectbox("Select Inspector", ["-- Select --"] + st.session_state.inspectors)
         
+    with col2:
+        stage = st.selectbox("Select Stage", ["-- Select --"] + st.session_state.stages)
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
     cam_photo = st.camera_input("Capture Photo")
     
-    submit = st.form_submit_button("🚀 SUBMIT RECORD")
-
-    if submit:
-        if any(v in ["-- Select --", "", None] for v in [job_code, inspector, stage]):
-            st.error("❌ Missing Data! Please select from dropdowns or use the 'Add New' section above.")
+    if st.form_submit_button("🚀 SUBMIT RECORD"):
+        if any(v == "-- Select --" for v in [job_code, inspector, stage]):
+            st.error("❌ Please select valid options from the dropdowns.")
         else:
             img_str = ""
             if cam_photo:
@@ -106,11 +120,11 @@ with st.form("main_form", clear_on_submit=True):
             updated_df = pd.concat([df, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
-                st.success(f"✅ Saved!")
+                st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 4. HISTORY ---
+# --- 6. HISTORY ---
 st.divider()
 if not df.empty:
-    st.subheader("📜 Recent Records")
+    st.subheader("📜 Recent History")
     st.dataframe(df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
