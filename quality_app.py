@@ -8,7 +8,7 @@ from github import Github
 from io import BytesIO
 from PIL import Image
 
-# --- 1. SETUP & SECRETS ---
+# --- 1. SETUP ---
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
 RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
@@ -21,7 +21,6 @@ except Exception:
     st.stop()
 
 st.set_page_config(page_title="B&G Quality Master", layout="wide")
-st.title("🛡️ B&G Quality Master")
 
 # --- 2. DATA UTILITIES ---
 def save_to_github(dataframe):
@@ -32,8 +31,7 @@ def save_to_github(dataframe):
         contents = repo.get_contents(DB_FILE)
         repo.update_file(contents.path, f"QC Sync {datetime.now(IST)}", csv_content, contents.sha)
         return True
-    except:
-        return False
+    except: return False
 
 def load_data():
     if os.path.exists(DB_FILE):
@@ -42,55 +40,55 @@ def load_data():
 
 def get_production_jobs():
     try:
-        prod_df = pd.read_csv(RAW_PROD_URL)
-        return sorted(prod_df["Job_Code"].dropna().unique().tolist())
-    except:
-        return []
+        pdf = pd.read_csv(RAW_PROD_URL)
+        return sorted(pdf["Job_Code"].dropna().unique().tolist())
+    except: return []
 
-# Prepare data for dropdowns
 df = load_data()
 job_list = get_production_jobs()
 inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
 stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
 
-# --- 3. INPUT FORM ---
-with st.form("quality_form", clear_on_submit=True):
-    col1, col2 = st.columns(2)
+# --- 3. UI LAYOUT ---
+st.title("🛡️ B&G Quality Master")
+
+# SEPARATE SECTION FOR ADDING NEW DATA
+with st.expander("➕ ADD NEW (Inspector / Stage / Job)"):
+    new_col1, new_col2, new_col3 = st.columns(3)
+    new_job = new_col1.text_input("New Job Code")
+    new_ins = new_col2.text_input("New Inspector")
+    new_stg = new_col3.text_input("New Stage")
+    st.info("Once you submit a log below using these typed names, they will appear in the dropdowns permanently.")
+
+st.divider()
+
+# MAIN ENTRY FORM (Dropdowns are now CLEAN)
+with st.form("main_form", clear_on_submit=True):
+    st.subheader("📝 Log Inspection")
+    c1, c2 = st.columns(2)
     
-    with col1:
-        # JOB CODE SELECTION
-        j_sel = st.selectbox("Job Code", ["-- Select --", "➕ Add New"] + job_list)
-        # Only shows row to enter if 'Add New' is picked
-        j_new = st.text_input("New Job Code Name") if j_sel == "➕ Add New" else ""
-        
-        # INSPECTOR SELECTION
-        i_sel = st.selectbox("Inspector", ["-- Select --", "➕ Add New"] + inspectors)
-        # Only shows row to enter if 'Add New' is picked
-        i_new = st.text_input("New Inspector Name") if i_sel == "➕ Add New" else ""
-        
-    with col2:
-        # STAGE SELECTION
-        s_sel = st.selectbox("Stage", ["-- Select --", "➕ Add New"] + stages)
-        # Only shows row to enter if 'Add New' is picked
-        s_new = st.text_input("New Stage Name") if s_sel == "➕ Add New" else ""
+    with c1:
+        # If user typed in the 'Add New' section, use that. Otherwise, use dropdown.
+        job_code = st.selectbox("Select Job", ["-- Select --"] + job_list) if not new_job else new_job
+        if new_job: st.caption(f"Using New Job: {new_job}")
+            
+        inspector = st.selectbox("Select Inspector", ["-- Select --"] + inspectors) if not new_ins else new_ins
+        if new_ins: st.caption(f"Using New Inspector: {new_ins}")
+
+    with c2:
+        stage = st.selectbox("Select Stage", ["-- Select --"] + stages) if not new_stg else new_stg
+        if new_stg: st.caption(f"Using New Stage: {new_stg}")
         
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
 
     remarks = st.text_area("Observations / Remarks")
-    cam_photo = st.camera_input("Capture Evidence Photo")
+    cam_photo = st.camera_input("Capture Photo")
     
-    # THE MAIN SUBMIT BUTTON
-    submit_btn = st.form_submit_button("🚀 Submit & Sync to GitHub")
+    submit = st.form_submit_button("🚀 SUBMIT RECORD")
 
-    if submit_btn:
-        # Determine final values based on Add New logic
-        final_job = j_new if j_sel == "➕ Add New" else j_sel
-        final_ins = i_new if i_sel == "➕ Add New" else i_sel
-        final_stg = s_new if s_sel == "➕ Add New" else s_sel
-        
-        # Check for empty data
-        if any(v in ["-- Select --", "", None] for v in [final_job, final_ins, final_stg]):
-            st.error("❌ Please fill all fields. If you picked 'Add New', type the name in the box.")
+    if submit:
+        if any(v in ["-- Select --", "", None] for v in [job_code, inspector, stage]):
+            st.error("❌ Missing Data! Please select from dropdowns or use the 'Add New' section above.")
         else:
             img_str = ""
             if cam_photo:
@@ -101,18 +99,14 @@ with st.form("quality_form", clear_on_submit=True):
             
             new_row = pd.DataFrame([{
                 "Timestamp": datetime.now(IST).strftime('%Y-%m-%d %H:%M'),
-                "Inspector": final_ins,
-                "Job_Code": final_job,
-                "Stage": final_stg,
-                "Status": status,
-                "Notes": remarks,
-                "Photo": img_str
+                "Inspector": inspector, "Job_Code": job_code, "Stage": stage,
+                "Status": status, "Notes": remarks, "Photo": img_str
             }])
             
             updated_df = pd.concat([df, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
-                st.success("✅ Record Successfully Saved!")
+                st.success(f"✅ Saved!")
                 st.rerun()
 
 # --- 4. HISTORY ---
