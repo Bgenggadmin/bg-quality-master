@@ -119,7 +119,7 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW (Perfectly Aligned Table) ---
+# --- 6. HISTORY & PHOTO VIEW (Perfectly Aligned Grid) ---
 st.divider()
 if not df.empty:
     st.subheader("📜 Recent History & Photo View")
@@ -127,36 +127,41 @@ if not df.empty:
     # Sort by Newest First
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
     
-    # 1. Create the Header Row
-    # Widths: Time(2), Job(2), Stage(1.5), Notes(3), View(1)
-    h1, h2, h3, h4, h5 = st.columns([2, 2, 1.5, 3, 1])
-    h1.write("**Time (IST)**")
-    h2.write("**Job Code**")
-    h3.write("**Stage**")
-    h4.write("**Notes**")
-    h5.write("**Action**")
-    st.divider()
+    # Define Column Ratios: [Time, Job, Stage, Remarks, Action]
+    # We use these exact numbers for both Header and Rows to lock the grid
+    col_widths = [1.8, 2.2, 1.5, 3.5, 1]
 
-    # 2. Create Data Rows
+    # 1. THE FIXED HEADER
+    h_cols = st.columns(col_widths)
+    h_cols[0].markdown("**🕒 Time (IST)**")
+    h_cols[1].markdown("**🏗️ Job Code**")
+    h_cols[2].markdown("**📍 Stage**")
+    h_cols[3].markdown("**📝 Observations**")
+    h_cols[4].markdown("**📸 Action**")
+    st.markdown("<hr style='margin:0; border:1px solid #ddd'>", unsafe_allow_html=True)
+
+    # 2. THE ALIGNED DATA ROWS
     for i, row in display_df.iterrows():
-        r1, r2, r3, r4, r5 = st.columns([2, 2, 1.5, 3, 1])
+        r_cols = st.columns(col_widths)
         
-        # Display Text Data
-        r1.write(f"🕒 {row['Timestamp']}")
-        r2.write(f"🏗️ {row['Job_Code']}")
-        r3.write(row['Stage'])
-        r4.write(row['Notes'])
+        # We use st.text to keep everything on one line if possible
+        r_cols[0].write(row["Timestamp"])
+        r_cols[1].write(row["Job_Code"])
+        r_cols[2].write(row["Stage"])
+        r_cols[3].write(row["Notes"] if pd.notna(row["Notes"]) else "-")
         
         # Action Button for Photo
         if isinstance(row["Photo"], str) and row["Photo"] != "":
-            if r5.button("👁️ View", key=f"tbl_btn_{i}"):
-                # Displays photo directly under the row being viewed
-                st.image(base64.b64decode(row["Photo"]), caption=f"Photo: {row['Job_Code']} - {row['Stage']}", width=500)
+            if r_cols[4].button("👁️ View", key=f"v_btn_{i}"):
+                # This opens the photo in full width right below the grid for inspection
+                st.image(base64.b64decode(row["Photo"]), 
+                         caption=f"Evidence: {row['Job_Code']} @ {row['Stage']}", 
+                         use_container_width=True)
         else:
-            r5.write("No Photo")
-        
-        # Add a subtle line between rows for clarity
-        st.markdown("---")
+            r_cols[4].write("No Photo")
+            
+        # Subtle separator between entries
+        st.markdown("<hr style='margin:5px; border:0.5px solid #eee'>", unsafe_allow_html=True)
 
 else:
     st.info("No records found in the database.")
