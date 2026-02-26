@@ -120,36 +120,30 @@ with st.form("main_form", clear_on_submit=True):
                 st.rerun()
 
 # --- 6. HISTORY & PHOTO VIEW ---
+# --- 6. HISTORY & PHOTO VIEW (Organized Card View) ---
 st.divider()
 if not df.empty:
     st.subheader("📜 Recent History & Photo View")
     
-    # Sort data for the table
+    # Sort data: Newest first
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
     
-    # Column headers for the custom table
-    cols = st.columns([2, 2, 2, 2, 3, 1.5])
-    cols[0].write("**Time (IST)**")
-    cols[1].write("**Inspector**")
-    cols[2].write("**Job Code**")
-    cols[3].write("**Stage**")
-    cols[4].write("**Notes**")
-    cols[5].write("**Action**")
-
     for i, row in display_df.iterrows():
-        c = st.columns([2, 2, 2, 2, 3, 1.5])
-        c[0].write(row["Timestamp"])
-        c[1].write(row["Inspector"])
-        c[2].write(row["Job_Code"])
-        c[3].write(row["Stage"])
-        c[4].write(row["Notes"])
-        
-        # Action button to view photo
-        if isinstance(row["Photo"], str) and row["Photo"] != "":
-            if c[5].button("👁️ View", key=f"btn_{i}"):
-                st.info(f"Viewing Photo for {row['Job_Code']} - {row['Stage']}")
-                st.image(base64.b64decode(row["Photo"]), width=400)
-        else:
-            c[5].write("No Photo")
+        # This creates a "Card" for each record
+        with st.container(border=True):
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                st.markdown(f"**Job:** {row['Job_Code']} | **Stage:** {row['Stage']}")
+                st.caption(f"🕒 {row['Timestamp']} | 👤 {row['Inspector']}")
+                st.write(f"📝 {row['Notes']}")
+            
+            with col2:
+                # Row-specific View Button
+                if isinstance(row["Photo"], str) and row["Photo"] != "":
+                    if st.button("👁️ View", key=f"btn_{i}"):
+                        st.image(base64.b64decode(row["Photo"]), use_container_width=True)
+                else:
+                    st.write("🚫 No Photo")
 else:
     st.info("No records found in the database.")
