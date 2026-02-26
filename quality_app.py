@@ -119,49 +119,77 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW (Perfectly Aligned Grid) ---
+# --- 6. HISTORY & PHOTO VIEW (Professional Ledger Grid) ---
 st.divider()
 if not df.empty:
-    st.subheader("📜 Recent History & Photo View")
+    st.subheader("📜 Quality Inspection Ledger")
     
-    # Sort by Newest First
+    # Sort data
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
+
+    # Custom CSS for the table grid lines
+    st.markdown("""
+        <style>
+            .report-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+            .report-table th, .report-table td { 
+                border: 1px solid #ddd; padding: 10px; text-align: left; 
+            }
+            .report-table th { background-color: #f2f2f2; font-weight: bold; }
+            .report-table tr:nth-child(even) { background-color: #f9f9f9; }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 1. Create the Table Header with HTML
+    header_html = """
+    <table class="report-table">
+        <tr>
+            <th style="width: 20%;">Time (IST)</th>
+            <th style="width: 20%;">Job Code</th>
+            <th style="width: 15%;">Stage</th>
+            <th style="width: 35%;">Observations</th>
+            <th style="width: 10%;">Photo</th>
+        </tr>
+    """
     
-    # Define Column Ratios: [Time, Job, Stage, Remarks, Action]
-    # We use these exact numbers for both Header and Rows to lock the grid
-    col_widths = [1.8, 2.2, 1.5, 3.5, 1]
-
-    # 1. THE FIXED HEADER
-    h_cols = st.columns(col_widths)
-    h_cols[0].markdown("**🕒 Time (IST)**")
-    h_cols[1].markdown("**🏗️ Job Code**")
-    h_cols[2].markdown("**📍 Stage**")
-    h_cols[3].markdown("**📝 Observations**")
-    h_cols[4].markdown("**📸 Action**")
-    st.markdown("<hr style='margin:0; border:1px solid #ddd'>", unsafe_allow_html=True)
-
-    # 2. THE ALIGNED DATA ROWS
+    # 2. Build the Rows
     for i, row in display_df.iterrows():
-        r_cols = st.columns(col_widths)
+        # Clean up data
+        notes = row["Notes"] if pd.notna(row["Notes"]) else "-"
         
-        # We use st.text to keep everything on one line if possible
-        r_cols[0].write(row["Timestamp"])
-        r_cols[1].write(row["Job_Code"])
-        r_cols[2].write(row["Stage"])
-        r_cols[3].write(row["Notes"] if pd.notna(row["Notes"]) else "-")
+        # Add the text row
+        header_html += f"""
+        <tr>
+            <td>{row['Timestamp']}</td>
+            <td><b>{row['Job_Code']}</b></td>
+            <td>{row['Stage']}</td>
+            <td>{notes}</td>
+            <td id="btn_cell_{i}"></td>
+        </tr>
+        """
+    
+    header_html += "</table>"
+    st.markdown(header_html, unsafe_allow_html=True)
+
+    # 3. Add the Interactive Buttons (Streamlit can't put buttons inside pure HTML easily)
+    # So we use a column layout right below the table to handle the "View" functionality
+    st.write("### 📸 Quick View Actions")
+    grid_cols = st.columns(5) # Match your table columns
+    
+    for i, row in display_df.head(10).iterrows(): # Show buttons for last 10 for performance
+        col1, col2 = st.columns([8, 2])
+        col1.write(f"Ref: {row['Job_Code']} | {row['Stage']}")
         
-        # Action Button for Photo
         if isinstance(row["Photo"], str) and row["Photo"] != "":
-            if r_cols[4].button("👁️ View", key=f"v_btn_{i}"):
-                # This opens the photo in full width right below the grid for inspection
+            if col2.button(f"👁️ View Photo", key=f"v_btn_{i}"):
                 st.image(base64.b64decode(row["Photo"]), 
-                         caption=f"Evidence: {row['Job_Code']} @ {row['Stage']}", 
+                         caption=f"B&G Evidence: {row['Job_Code']}", 
                          use_container_width=True)
         else:
-            r_cols[4].write("No Photo")
-            
-        # Subtle separator between entries
-        st.markdown("<hr style='margin:5px; border:0.5px solid #eee'>", unsafe_allow_html=True)
+            col2.write("No Photo")
+        st.divider()
+
+else:
+    st.info("No records found in the database.")
 
 else:
     st.info("No records found in the database.")
