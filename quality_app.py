@@ -119,79 +119,56 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW (Mobile-Locked Grid) ---
+# --- 6. HISTORY & PHOTO VIEW (The Professional Ledger) ---
 st.divider()
 if not df.empty:
-    st.subheader("📜 Quality Inspection Ledger")
+    st.subheader("📋 Quality Inspection Ledger")
     
-    # Sort data
+    # Sort data: Newest entries at the top
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
 
-    # 1. Custom CSS for Horizontal Scrolling & Grid Lines
+    # Custom CSS to force grid lines and prevent vertical stacking
     st.markdown("""
         <style>
-            .scroll-container {
-                width: 100%;
-                overflow-x: auto;
-                white-space: nowrap;
+            [data-testid="stHorizontalBlock"] {
                 border: 1px solid #ddd;
+                margin-bottom: -1px; /* Overlap borders for a clean grid look */
+                background-color: white;
             }
-            .ledger-table {
-                width: 100%;
-                border-collapse: collapse;
-                min-width: 800px; /* Forces the grid to stay wide */
+            [data-testid="column"] {
+                border-right: 1px solid #ddd;
+                padding: 10px !important;
+                min-width: 100px;
             }
-            .ledger-table th, .ledger-table td {
-                border: 1px solid #ddd;
-                padding: 12px;
-                text-align: left;
-                font-size: 14px;
-            }
-            .ledger-table th {
-                background-color: #f8f9fa;
-                position: sticky;
-                top: 0;
-            }
-            .ledger-table tr:nth-child(even) { background-color: #fdfdfd; }
+            [data-testid="column"]:last-child { border-right: none; }
         </style>
     """, unsafe_allow_html=True)
 
-    # 2. Build the HTML Table
-    table_html = '<div class="scroll-container"><table class="ledger-table"><tr>'
-    table_html += '<th>Time (IST)</th><th>Job Code</th><th>Stage</th><th>Observations</th><th>Action</th></tr>'
+    # 1. FIXED HEADER ROW
+    # Ratios: [Time, Job, Stage, Remarks, Action]
+    cols_header = st.columns([1.5, 2, 1.2, 3, 1])
+    cols_header[0].markdown("**Time (IST)**")
+    cols_header[1].markdown("**Job Code**")
+    cols_header[2].markdown("**Stage**")
+    cols_header[3].markdown("**Observations**")
+    cols_header[4].markdown("**View**")
 
+    # 2. ALIGNED DATA ROWS
     for i, row in display_df.iterrows():
-        notes = row["Notes"] if pd.notna(row["Notes"]) else "-"
-        action_text = "📸 Photo Logged" if (isinstance(row["Photo"], str) and row["Photo"] != "") else "No Photo"
+        cols = st.columns([1.5, 2, 1.2, 3, 1])
         
-        table_html += f"""
-        <tr>
-            <td>{row['Timestamp']}</td>
-            <td><b>{row['Job_Code']}</b></td>
-            <td>{row['Stage']}</td>
-            <td>{notes}</td>
-            <td>{action_text}</td>
-        </tr>
-        """
-    table_html += "</table></div>"
-    
-    # Render the Table
-    st.markdown(table_html, unsafe_allow_html=True)
-
-    # 3. Interactive Photo Viewer (Outside the scroll for better view)
-    st.write("---")
-    st.write("### 🔍 Select Job to View Photo")
-    photo_select = st.selectbox("Pick a record to see evidence:", 
-                                 [f"{r['Timestamp']} | {r['Job_Code']}" for _, r in display_df.iterrows() if isinstance(r["Photo"], str) and r["Photo"] != ""])
-    
-    if photo_select:
-        # Extract timestamp to find the right row
-        selected_ts = photo_select.split(" | ")[0]
-        selected_row = display_df[display_df["Timestamp"] == selected_ts].iloc[0]
-        st.image(base64.b64decode(selected_row["Photo"]), 
-                 caption=f"Evidence: {selected_row['Job_Code']} - {selected_row['Stage']}", 
-                 use_container_width=True)
+        cols[0].write(row["Timestamp"])
+        cols[1].write(f"**{row['Job_Code']}**")
+        cols[2].write(row["Stage"])
+        cols[3].write(row["Notes"] if pd.notna(row["Notes"]) else "-")
+        
+        # Row-wise Photo Action
+        if isinstance(row["Photo"], str) and row["Photo"] != "":
+            if cols[4].button("👁️", key=f"ledger_v_{i}"):
+                st.info(f"Viewing: {row['Job_Code']} - {row['Stage']}")
+                st.image(base64.b64decode(row["Photo"]), use_container_width=True)
+        else:
+            cols[4].write("-")
 
 else:
     st.info("No records found in the database.")
-
