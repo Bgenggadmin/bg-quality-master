@@ -45,16 +45,34 @@ def get_production_jobs():
     except: 
         return []
 
-# --- 3. SESSION STATE ---
-df = load_data()
-if 'jobs' not in st.session_state:
-    st.session_state.jobs = get_production_jobs()
-if 'inspectors' not in st.session_state:
-    st.session_state.inspectors = sorted(df["Inspector"].dropna().unique().tolist()) if not df.empty else ["Subodth", "Prasanth", "RamaSai", "Naresh"]
-if 'stages' not in st.session_state:
-    st.session_state.stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
+# --- 3. INTERACTIVE PHOTO VIEWER (Fixed for B&G Engineering) ---
+st.write("---")
+st.subheader("🔍 View Inspection Evidence")
 
-st.title("🛡️ B&G Quality Master")
+# 1. Filter rows that actually have image data
+# We look for rows where the 'Photo' column contains more than just the status text
+photo_rows = df[df["Photo"].astype(str).str.len() > 20].copy()
+
+if not photo_rows.empty:
+    # 2. Sort by newest first for the dropdown
+    photo_rows = photo_rows.sort_values(by="Timestamp", ascending=False)
+    
+    # 3. Create a clean selection list for your iPhone
+    options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_rows.iterrows()}
+    selection = st.selectbox("Select record to see photo:", options.keys(), format_func=lambda x: options[x])
+    
+    if selection is not None:
+        try:
+            # 4. DECODE AND SHOW THE IMAGE
+            # This takes the raw data and turns it back into a visible photo
+            img_data = base64.b64decode(photo_rows.loc[selection, "Photo"])
+            st.image(img_data, 
+                     caption=f"B&G Evidence: {photo_rows.loc[selection, 'Job_Code']} - {photo_rows.loc[selection, 'Stage']}", 
+                     use_container_width=True)
+        except Exception as e:
+            st.error(f"⚠️ Could not load this specific photo. (Error: {e})")
+else:
+    st.info("No photos have been recorded in the database yet.")
 
 # --- 4. THE "ADD NEW" SECTION ---
 with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
