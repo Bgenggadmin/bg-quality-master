@@ -119,77 +119,67 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW (Professional Ledger Grid) ---
+# --- 6. HISTORY & PHOTO VIEW (Perfect Aligned Grid) ---
 st.divider()
 if not df.empty:
     st.subheader("📜 Quality Inspection Ledger")
     
-    # Sort data
-    display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
-
-    # Custom CSS for the table grid lines
+    # 1. CSS for Grid Lines and Table Styling
     st.markdown("""
         <style>
-            .report-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-            .report-table th, .report-table td { 
-                border: 1px solid #ddd; padding: 10px; text-align: left; 
+            .grid-container {
+                display: grid;
+                grid-template-columns: 1.5fr 2fr 1.5fr 3fr 1fr;
+                border: 1px solid #ddd;
+                background-color: #fff;
             }
-            .report-table th { background-color: #f2f2f2; font-weight: bold; }
-            .report-table tr:nth-child(even) { background-color: #f9f9f9; }
+            .grid-header {
+                background-color: #f2f2f2;
+                font-weight: bold;
+                border-bottom: 2px solid #ccc;
+            }
+            .grid-cell {
+                padding: 10px;
+                border-right: 1px solid #ddd;
+                border-bottom: 1px solid #ddd;
+                font-size: 14px;
+                overflow: hidden;
+            }
         </style>
     """, unsafe_allow_html=True)
 
-    # 1. Create the Table Header with HTML
-    header_html = """
-    <table class="report-table">
-        <tr>
-            <th style="width: 20%;">Time (IST)</th>
-            <th style="width: 20%;">Job Code</th>
-            <th style="width: 15%;">Stage</th>
-            <th style="width: 35%;">Observations</th>
-            <th style="width: 10%;">Photo</th>
-        </tr>
-    """
-    
-    # 2. Build the Rows
-    for i, row in display_df.iterrows():
-        # Clean up data
-        notes = row["Notes"] if pd.notna(row["Notes"]) else "-"
-        
-        # Add the text row
-        header_html += f"""
-        <tr>
-            <td>{row['Timestamp']}</td>
-            <td><b>{row['Job_Code']}</b></td>
-            <td>{row['Stage']}</td>
-            <td>{notes}</td>
-            <td id="btn_cell_{i}"></td>
-        </tr>
-        """
-    
-    header_html += "</table>"
-    st.markdown(header_html, unsafe_allow_html=True)
+    # 2. Sort Data (Newest First)
+    display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
 
-    # 3. Add the Interactive Buttons (Streamlit can't put buttons inside pure HTML easily)
-    # So we use a column layout right below the table to handle the "View" functionality
-    st.write("### 📸 Quick View Actions")
-    grid_cols = st.columns(5) # Match your table columns
-    
-    for i, row in display_df.head(10).iterrows(): # Show buttons for last 10 for performance
-        col1, col2 = st.columns([8, 2])
-        col1.write(f"Ref: {row['Job_Code']} | {row['Stage']}")
+    # 3. Headers
+    h_col1, h_col2, h_col3, h_col4, h_col5 = st.columns([1.5, 2, 1.5, 3, 1])
+    h_col1.markdown("**Time (IST)**")
+    h_col2.markdown("**Job Code**")
+    h_col3.markdown("**Stage**")
+    h_col4.markdown("**Observations**")
+    h_col5.markdown("**Photo**")
+    st.markdown("<hr style='margin:2px; border:1px solid #000'>", unsafe_allow_html=True)
+
+    # 4. Data Rows with Grid Logic
+    for i, row in display_df.iterrows():
+        r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns([1.5, 2, 1.5, 3, 1])
         
+        r_col1.write(row["Timestamp"])
+        r_col2.write(f"**{row['Job_Code']}**")
+        r_col3.write(row["Stage"])
+        r_col4.write(row["Notes"] if pd.notna(row["Notes"]) else "-")
+        
+        # Action Button for Photo
         if isinstance(row["Photo"], str) and row["Photo"] != "":
-            if col2.button(f"👁️ View Photo", key=f"v_btn_{i}"):
+            if r_col5.button("👁️ View", key=f"grid_btn_{i}"):
                 st.image(base64.b64decode(row["Photo"]), 
                          caption=f"B&G Evidence: {row['Job_Code']}", 
                          use_container_width=True)
         else:
-            col2.write("No Photo")
-        st.divider()
-
-else:
-    st.info("No records found in the database.")
+            r_col5.write("None")
+            
+        # This creates the "Grid Line" between rows
+        st.markdown("<hr style='margin:2px; border:0.5px solid #eee'>", unsafe_allow_html=True)
 
 else:
     st.info("No records found in the database.")
