@@ -119,67 +119,79 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW (Perfect Aligned Grid) ---
+# --- 6. HISTORY & PHOTO VIEW (Mobile-Locked Grid) ---
 st.divider()
 if not df.empty:
     st.subheader("📜 Quality Inspection Ledger")
     
-    # 1. CSS for Grid Lines and Table Styling
+    # Sort data
+    display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
+
+    # 1. Custom CSS for Horizontal Scrolling & Grid Lines
     st.markdown("""
         <style>
-            .grid-container {
-                display: grid;
-                grid-template-columns: 1.5fr 2fr 1.5fr 3fr 1fr;
+            .scroll-container {
+                width: 100%;
+                overflow-x: auto;
+                white-space: nowrap;
                 border: 1px solid #ddd;
-                background-color: #fff;
             }
-            .grid-header {
-                background-color: #f2f2f2;
-                font-weight: bold;
-                border-bottom: 2px solid #ccc;
+            .ledger-table {
+                width: 100%;
+                border-collapse: collapse;
+                min-width: 800px; /* Forces the grid to stay wide */
             }
-            .grid-cell {
-                padding: 10px;
-                border-right: 1px solid #ddd;
-                border-bottom: 1px solid #ddd;
+            .ledger-table th, .ledger-table td {
+                border: 1px solid #ddd;
+                padding: 12px;
+                text-align: left;
                 font-size: 14px;
-                overflow: hidden;
             }
+            .ledger-table th {
+                background-color: #f8f9fa;
+                position: sticky;
+                top: 0;
+            }
+            .ledger-table tr:nth-child(even) { background-color: #fdfdfd; }
         </style>
     """, unsafe_allow_html=True)
 
-    # 2. Sort Data (Newest First)
-    display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
+    # 2. Build the HTML Table
+    table_html = '<div class="scroll-container"><table class="ledger-table"><tr>'
+    table_html += '<th>Time (IST)</th><th>Job Code</th><th>Stage</th><th>Observations</th><th>Action</th></tr>'
 
-    # 3. Headers
-    h_col1, h_col2, h_col3, h_col4, h_col5 = st.columns([1.5, 2, 1.5, 3, 1])
-    h_col1.markdown("**Time (IST)**")
-    h_col2.markdown("**Job Code**")
-    h_col3.markdown("**Stage**")
-    h_col4.markdown("**Observations**")
-    h_col5.markdown("**Photo**")
-    st.markdown("<hr style='margin:2px; border:1px solid #000'>", unsafe_allow_html=True)
-
-    # 4. Data Rows with Grid Logic
     for i, row in display_df.iterrows():
-        r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns([1.5, 2, 1.5, 3, 1])
+        notes = row["Notes"] if pd.notna(row["Notes"]) else "-"
+        action_text = "📸 Photo Logged" if (isinstance(row["Photo"], str) and row["Photo"] != "") else "No Photo"
         
-        r_col1.write(row["Timestamp"])
-        r_col2.write(f"**{row['Job_Code']}**")
-        r_col3.write(row["Stage"])
-        r_col4.write(row["Notes"] if pd.notna(row["Notes"]) else "-")
-        
-        # Action Button for Photo
-        if isinstance(row["Photo"], str) and row["Photo"] != "":
-            if r_col5.button("👁️ View", key=f"grid_btn_{i}"):
-                st.image(base64.b64decode(row["Photo"]), 
-                         caption=f"B&G Evidence: {row['Job_Code']}", 
-                         use_container_width=True)
-        else:
-            r_col5.write("None")
-            
-        # This creates the "Grid Line" between rows
-        st.markdown("<hr style='margin:2px; border:0.5px solid #eee'>", unsafe_allow_html=True)
+        table_html += f"""
+        <tr>
+            <td>{row['Timestamp']}</td>
+            <td><b>{row['Job_Code']}</b></td>
+            <td>{row['Stage']}</td>
+            <td>{notes}</td>
+            <td>{action_text}</td>
+        </tr>
+        """
+    table_html += "</table></div>"
+    
+    # Render the Table
+    st.markdown(table_html, unsafe_allow_html=True)
+
+    # 3. Interactive Photo Viewer (Outside the scroll for better view)
+    st.write("---")
+    st.write("### 🔍 Select Job to View Photo")
+    photo_select = st.selectbox("Pick a record to see evidence:", 
+                                 [f"{r['Timestamp']} | {r['Job_Code']}" for _, r in display_df.iterrows() if isinstance(r["Photo"], str) and r["Photo"] != ""])
+    
+    if photo_select:
+        # Extract timestamp to find the right row
+        selected_ts = photo_select.split(" | ")[0]
+        selected_row = display_df[display_df["Timestamp"] == selected_ts].iloc[0]
+        st.image(base64.b64decode(selected_row["Photo"]), 
+                 caption=f"Evidence: {selected_row['Job_Code']} - {selected_row['Stage']}", 
+                 use_container_width=True)
 
 else:
     st.info("No records found in the database.")
+
