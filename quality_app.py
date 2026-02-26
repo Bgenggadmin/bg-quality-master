@@ -46,23 +46,39 @@ def get_production_jobs():
         return []
 
 # --- 3. INTERACTIVE PHOTO VIEWER (Fixed for B&G Engineering) ---
+# --- 3. INTERACTIVE PHOTO VIEWER (Final NameError Fix) ---
 st.write("---")
 st.subheader("🔍 View Inspection Evidence")
 
-# 1. Filter rows that actually have image data
-# We look for rows where the 'Photo' column contains more than just the status text
-photo_rows = df[df["Photo"].astype(str).str.len() > 20].copy()
+# Load the latest data into a temporary dataframe for viewing
+current_df = load_data()
 
-if not photo_rows.empty:
-    # 2. Sort by newest first for the dropdown
-    photo_rows = photo_rows.sort_values(by="Timestamp", ascending=False)
+if not current_df.empty:
+    # 1. Filter only rows that contain actual image data (base64 strings)
+    # This prevents errors if a row has no photo
+    photo_rows = current_df[current_df["Photo"].astype(str).str.len() > 50].copy()
     
-    # 3. Create a clean selection list for your iPhone
-    options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_rows.iterrows()}
-    selection = st.selectbox("Select record to see photo:", options.keys(), format_func=lambda x: options[x])
-    
-    if selection is not None:
-        try:
+    if not photo_rows.empty:
+        # Sort newest first
+        photo_rows = photo_rows.sort_values(by="Timestamp", ascending=False)
+        
+        # 2. Create the dropdown list
+        options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_rows.iterrows()}
+        selection = st.selectbox("Select record to see photo:", options.keys(), format_func=lambda x: options[x])
+        
+        if selection is not None:
+            try:
+                # 3. Decode and display the image
+                img_data = base64.b64decode(photo_rows.loc[selection, "Photo"])
+                st.image(img_data, 
+                         caption=f"Evidence: {photo_rows.loc[selection, 'Job_Code']} - {photo_rows.loc[selection, 'Stage']}", 
+                         use_container_width=True)
+            except Exception as e:
+                st.error(f"⚠️ Image format error: {e}")
+    else:
+        st.info("No records with photos found yet.")
+else:
+    st.info("The database is currently empty.")
             # 4. DECODE AND SHOW THE IMAGE
             # This takes the raw data and turns it back into a visible photo
             img_data = base64.b64decode(photo_rows.loc[selection, "Photo"])
