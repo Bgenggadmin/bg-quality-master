@@ -7,22 +7,27 @@ import base64
 from github import Github
 from io import BytesIO
 from PIL import Image
+import streamlit.components.v1 as components
 
-# --- 1. SETUP ---
+# --- 1. SETUP & AUTHENTICATION ---
 IST = pytz.timezone('Asia/Kolkata')
 DB_FILE = "quality_logs.csv"
-RAW_PROD_URL = "https://raw.githubusercontent.com/Bgenggadmin/shopfloor-monitor/main/production_logs.csv"
 
 try:
     REPO_NAME = st.secrets["GITHUB_REPO"]
     TOKEN = st.secrets["GITHUB_TOKEN"]
-except Exception:
-    st.error("❌ Secrets missing! Please check Streamlit Cloud Secrets.")
+except:
+    st.error("❌ Secrets missing in Streamlit Cloud!")
     st.stop()
 
 st.set_page_config(page_title="B&G Quality Master", layout="wide")
 
-# --- 2. DATA UTILITIES ---
+# --- 2. CORE FUNCTIONS ---
+def load_data():
+    if os.path.exists(DB_FILE):
+        return pd.read_csv(DB_FILE)
+    return pd.DataFrame(columns=["Timestamp", "Inspector", "Job_Code", "Heat_No", "Stage", "Status", "Notes", "Photo"])
+
 def save_to_github(dataframe):
     try:
         g = Github(TOKEN)
@@ -31,197 +36,95 @@ def save_to_github(dataframe):
         contents = repo.get_contents(DB_FILE)
         repo.update_file(contents.path, f"QC Sync {datetime.now(IST)}", csv_content, contents.sha)
         return True
-    except: 
+    except:
         return False
 
-def load_data():
-    if os.path.exists(DB_FILE):
-        return pd.read_csv(DB_FILE)
-    return pd.DataFrame(columns=["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes", "Photo"])
+# --- 3. STATE MANAGEMENT ---
+df = load_data()
+if 'inspectors' not in st.session_state:
+    st.session_state.inspectors = ["Subodth", "Prasanth", "RamaSai", "Naresh"]
+if 'stages' not in st.session_state:
+    st.session_state.stages = ["RM Inspection", "Marking", "Fit-up", "Welding", "Final", "Hydrotest"]
 
-def get_production_jobs():
-    try:
-        return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
-    except: 
-        return []
+st.title("🛡️ B&G Quality Master")
 
-# --- 3. INTERACTIVE PHOTO VIEWER (Fixed for B&G Engineering) ---
-# --- 3. INTERACTIVE PHOTO VIEWER (Final NameError Fix) ---
-st.write("---")
-st.subheader("🔍 View Inspection Evidence")
-
-# Load the latest data into a temporary dataframe for viewing
-current_df = load_data()
-
-if not current_df.empty:
-    # 1. Filter only rows that contain actual image data (base64 strings)
-    # This prevents errors if a row has no photo
-    photo_rows = current_df[current_df["Photo"].astype(str).str.len() > 50].copy()
-    
-    if not photo_rows.empty:
-        # Sort newest first
-        photo_rows = photo_rows.sort_values(by="Timestamp", ascending=False)
-        
-        # 2. Create the dropdown list
-        options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_rows.iterrows()}
-        selection = st.selectbox("Select record to see photo:", options.keys(), format_func=lambda x: options[x])
-        
-        if selection is not None:
-            try:
-                # 3. Decode and display the image
-                img_data = base64.b64decode(photo_rows.loc[selection, "Photo"])
-                st.image(img_data, 
-                         caption=f"Evidence: {photo_rows.loc[selection, 'Job_Code']} - {photo_rows.loc[selection, 'Stage']}", 
-                         use_container_width=True)
-            except Exception as e:
-                st.error(f"⚠️ Image format error: {e}")
-    else:
-        st.info("No records with photos found yet.")
-else:
-    st.info("The database is currently empty.")
-            # 4. DECODE AND SHOW THE IMAGE
-            # This takes the raw data and turns it back into a visible photo
-            img_data = base64.b64decode(photo_rows.loc[selection, "Photo"])
-            st.image(img_data, 
-                     caption=f"B&G Evidence: {photo_rows.loc[selection, 'Job_Code']} - {photo_rows.loc[selection, 'Stage']}", 
-                     use_container_width=True)
-        except Exception as e:
-            st.error(f"⚠️ Could not load this specific photo. (Error: {e})")
-else:
-    st.info("No photos have been recorded in the database yet.")
-
-# --- 4. THE "ADD NEW" SECTION ---
-with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
-    c1, c2, c3 = st.columns(3)
-    nj = c1.text_input("New Job Code")
-    if c1.button("Add Job"):
-        if nj and nj not in st.session_state.jobs:
-            st.session_state.jobs.append(nj.upper())
-            st.session_state.jobs.sort()
-            st.success(f"Added {nj}")
-    
-    ni = c2.text_input("New Inspector")
-    if c2.button("Add Inspector"):
-        if ni and ni not in st.session_state.inspectors:
-            st.session_state.inspectors.append(ni)
-            st.session_state.inspectors.sort()
-            st.success(f"Added {ni}")
-            
-    ns = c3.text_input("New Stage")
-    if c3.button("Add Stage"):
-        if ns and ns not in st.session_state.stages:
-            st.session_state.stages.append(ns)
-            st.session_state.stages.sort()
-            st.success(f"Added {ns}")
-
-st.divider()
-
-# --- 5. MAIN LOGGING FORM ---
+# --- 4. INPUT FORM ---
 with st.form("main_form", clear_on_submit=True):
-    st.subheader("📝 Log Inspection")
-    col1, col2 = st.columns(2)
-    with col1:
-        job_code = st.selectbox("Select Job Code", ["-- Select --"] + st.session_state.jobs)
-        inspector = st.selectbox("Select Inspector", ["-- Select --"] + st.session_state.inspectors)
-    with col2:
-        stage = st.selectbox("Select Stage", ["-- Select --"] + st.session_state.stages)
+    st.subheader("📝 New Inspection Entry")
+    c1, c2 = st.columns(2)
+    with c1:
+        job_code = st.text_input("Job Code (e.g. SSR501)")
+        inspector = st.selectbox("Inspector", st.session_state.inspectors)
+        heat_no = st.text_input("Heat Number / Batch No")
+    with c2:
+        stage = st.selectbox("Stage", st.session_state.stages)
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
-
-    remarks = st.text_area("Observations / Remarks")
-    cam_photo = st.camera_input("Capture Photo")
     
+    remarks = st.text_area("Observations / Remarks")
+    cam_photo = st.camera_input("Take Inspection Photo")
+
     if st.form_submit_button("🚀 SUBMIT RECORD"):
-        if any(v == "-- Select --" for v in [job_code, inspector, stage]):
-            st.error("❌ Please select valid options from the dropdowns.")
+        if not job_code or not heat_no:
+            st.error("❌ Job Code and Heat Number are mandatory.")
         else:
             img_str = ""
             if cam_photo:
                 img = Image.open(cam_photo)
                 buffered = BytesIO()
-                img.save(buffered, format="JPEG")
+                img.save(buffered, format="JPEG", quality=50) # Compression for speed
                 img_str = base64.b64encode(buffered.getvalue()).decode()
             
             new_row = pd.DataFrame([{
                 "Timestamp": datetime.now(IST).strftime('%Y-%m-%d %H:%M'),
-                "Inspector": inspector, "Job_Code": job_code, "Stage": stage,
+                "Inspector": inspector, "Job_Code": job_code.upper(), 
+                "Heat_No": heat_no.upper(), "Stage": stage,
                 "Status": status, "Notes": remarks, "Photo": img_str
             }])
             
-            updated_df = pd.concat([df, new_row], ignore_index=True)
-            updated_df.to_csv(DB_FILE, index=False)
-            if save_to_github(updated_df):
-                st.success("✅ Log Saved!")
-                st.rerun()
+            df = pd.concat([df, new_row], ignore_index=True)
+            df.to_csv(DB_FILE, index=False)
+            save_to_github(df)
+            st.success("✅ Logged & Synced to GitHub!")
+            st.rerun()
 
-import streamlit.components.v1 as components
-
-# --- 6. HISTORY & PHOTO VIEW (The Final Ledger Fix) ---
+# --- 5. THE PERFECT LEDGER GRID ---
 st.divider()
 if not df.empty:
     st.subheader("📋 Quality Inspection Ledger")
+    view_df = df.sort_values(by="Timestamp", ascending=False).head(20)
     
-    # Sort data: Newest first
-    display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
-
-    # 1. THE RIGID GRID HTML & CSS
     table_html = """
-    <style>
-        .ledger-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-family: sans-serif;
-            min-width: 800px; /* Forces horizontal scroll on mobile */
-        }
-        .ledger-table th, .ledger-table td {
-            border: 1px solid #000; /* Black grid lines */
-            padding: 10px;
-            text-align: left;
-            font-size: 14px;
-        }
-        .ledger-table th { background-color: #f2f2f2; font-weight: bold; }
-    </style>
-    <div style="overflow-x: auto;">
-        <table class="ledger-table">
-            <thead>
-                <tr>
-                    <th>Time (IST)</th>
-                    <th>Job Code</th>
-                    <th>Stage</th>
-                    <th>Observations</th>
-                    <th>Photo Status</th>
-                </tr>
-            </thead>
-            <tbody>
+    <div style="overflow-x: auto; border: 1px solid #000;">
+        <table style="width:100%; border-collapse: collapse; font-family: sans-serif; min-width: 850px;">
+            <tr style="background-color: #f2f2f2;">
+                <th style="border:1px solid #000; padding:8px;">Time (IST)</th>
+                <th style="border:1px solid #000; padding:8px;">Job Code</th>
+                <th style="border:1px solid #000; padding:8px;">Heat No</th>
+                <th style="border:1px solid #000; padding:8px;">Stage</th>
+                <th style="border:1px solid #000; padding:8px;">Observations</th>
+                <th style="border:1px solid #000; padding:8px;">Photo Status</th>
+            </tr>
     """
+    for _, r in view_df.iterrows():
+        p_stat = "✅ Photo" if len(str(r['Photo'])) > 50 else "❌ None"
+        table_html += f"<tr><td style='border:1px solid #000; padding:8px;'>{r['Timestamp']}</td>"
+        table_html += f"<td style='border:1px solid #000; padding:8px;'><b>{r['Job_Code']}</b></td>"
+        table_html += f"<td style='border:1px solid #000; padding:8px;'>{r['Heat_No']}</td>"
+        table_html += f"<td style='border:1px solid #000; padding:8px;'>{r['Stage']}</td>"
+        table_html += f"<td style='border:1px solid #000; padding:8px;'>{r['Notes']}</td>"
+        table_html += f"<td style='border:1px solid #000; padding:8px;'>{p_stat}</td></tr>"
+    table_html += "</table></div>"
+    components.html(table_html, height=400, scrolling=True)
 
-    for i, row in display_df.iterrows():
-        notes = row["Notes"] if pd.notna(row["Notes"]) else "-"
-        photo_status = "✅ Photo" if (isinstance(row["Photo"], str) and len(row["Photo"]) > 10) else "❌ None"
-        table_html += f"<tr><td>{row['Timestamp']}</td><td><b>{row['Job_Code']}</b></td><td>{row['Stage']}</td><td>{notes}</td><td>{photo_status}</td></tr>"
-
-    table_html += "</tbody></table></div>"
-    
-    # 2. RENDER AS A COMPONENT (Fixes the raw code view issue)
-    components.html(table_html, height=500, scrolling=True)
-
-    # 3. INTERACTIVE PHOTO VIEWER
+    # --- 6. FIXED PHOTO VIEWER ---
     st.write("---")
     st.subheader("🔍 View Inspection Evidence")
-    
-    # Filter rows with actual photos
-    photo_rows = display_df[display_df["Photo"].astype(str).str.len() > 10]
-    
+    photo_rows = df[df["Photo"].astype(str).str.len() > 50].copy()
     if not photo_rows.empty:
-        # User picks the record from a clean list
+        photo_rows = photo_rows.sort_values(by="Timestamp", ascending=False)
         options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_rows.iterrows()}
         selection = st.selectbox("Select record to see photo:", options.keys(), format_func=lambda x: options[x])
-        
         if selection is not None:
-            st.image(base64.b64decode(photo_rows.loc[selection, "Photo"]), 
-                     caption=f"Evidence: {photo_rows.loc[selection, 'Job_Code']}", 
-                     use_container_width=True)
-    else:
-        st.info("No photos available in the logs.")
-
+            st.image(base64.b64decode(photo_rows.loc[selection, "Photo"]), use_container_width=True)
 else:
-    st.info("No records found in the database.")
+    st.info("No records found.")
