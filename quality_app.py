@@ -33,6 +33,8 @@ def save_to_github(dataframe):
         return True
     except: return False
 
+# Added cache decorator with 1s TTL to ensure fresh data on refresh
+@st.cache_data(ttl=1)
 def load_data():
     if os.path.exists(DB_FILE):
         return pd.read_csv(DB_FILE)
@@ -58,7 +60,6 @@ st.title("🛡️ B&G Quality Master")
 with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
     c1, c2, c3 = st.columns(3)
     
-    # ADD NEW JOB
     nj = c1.text_input("New Job Code")
     if c1.button("Add Job"):
         if nj and nj not in st.session_state.jobs:
@@ -66,7 +67,6 @@ with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
             st.session_state.jobs.sort()
             st.success(f"Added {nj}")
     
-    # ADD NEW INSPECTOR
     ni = c2.text_input("New Inspector")
     if c2.button("Add Inspector"):
         if ni and ni not in st.session_state.inspectors:
@@ -74,7 +74,6 @@ with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
             st.session_state.inspectors.sort()
             st.success(f"Added {ni}")
             
-    # ADD NEW STAGE
     ns = c3.text_input("New Stage")
     if c3.button("Add Stage"):
         if ns and ns not in st.session_state.stages:
@@ -107,8 +106,13 @@ with st.form("main_form", clear_on_submit=True):
             img_str = ""
             if cam_photo:
                 img = Image.open(cam_photo)
+                
+                # OPTIMIZATION: Resize to Passport size (400px width)
+                img.thumbnail((400, 400))
+                
                 buffered = BytesIO()
-                img.save(buffered, format="JPEG")
+                # OPTIMIZATION: Compress to ~60KB target
+                img.save(buffered, format="JPEG", quality=40, optimize=True)
                 img_str = base64.b64encode(buffered.getvalue()).decode()
             
             new_row = pd.DataFrame([{
@@ -120,6 +124,8 @@ with st.form("main_form", clear_on_submit=True):
             updated_df = pd.concat([df, new_row], ignore_index=True)
             updated_df.to_csv(DB_FILE, index=False)
             if save_to_github(updated_df):
+                # Clear cache so the ledger updates immediately
+                st.cache_data.clear()
                 st.success("✅ Log Saved!")
                 st.rerun()
 
@@ -128,10 +134,8 @@ st.divider()
 if not df.empty:
     st.subheader("📜 Quality Inspection Ledger")
     
-    # Sort data: Newest first for the ledger
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
 
-    # 1. Professional Grid Table (Desktop & Mobile Swipe)
     table_html = """
     <style>
         .ledger-wrapper { overflow-x: auto; border: 1px solid #000; }
@@ -151,7 +155,6 @@ if not df.empty:
             </tr>
     """
     for i, row in display_df.iterrows():
-        # Check if photo exists in the hidden data column
         has_photo = "✅ Photo" if (isinstance(row["Photo"], str) and len(row["Photo"]) > 50) else "❌ None"
         table_html += f"""
             <tr>
@@ -164,29 +167,23 @@ if not df.empty:
             </tr>
         """
     table_html += "</table></div>"
-    
-    # Render the table grid
     st.components.v1.html(table_html, height=400, scrolling=True)
 
-    # 2. Interactive Photo Viewer (The separate selection you liked)
     st.write("---")
     st.subheader("🔍 View Inspection Photo")
     
-    # Filter only rows that actually contain image data
     photo_only_df = display_df[display_df["Photo"].astype(str).str.len() > 50].copy()
     
     if not photo_only_df.empty:
-        # Create a clean dropdown list for the iPhone
         photo_options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_only_df.iterrows()}
         photo_selection = st.selectbox("Select a record to view its photo:", 
                                          options=photo_options.keys(), 
                                          format_func=lambda x: photo_options[x])
         
         if photo_selection is not None:
-            # Decode the base64 string back into a visible image
             st.image(base64.b64decode(photo_only_df.loc[photo_selection, "Photo"]), 
                      caption=f"B&G Evidence: {photo_only_df.loc[photo_selection, 'Job_Code']}", 
-                     use_container_width=True)
+                     width=400) # Displaying at optimized width
     else:
         st.info("No inspection photos found in the current logs.")
 else:
