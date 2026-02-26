@@ -123,8 +123,68 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY ---
+# --- 6. HISTORY & PHOTO VIEW ---
 st.divider()
 if not df.empty:
-    st.subheader("📜 Recent History")
-    st.dataframe(df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
+    st.subheader("📜 Quality Inspection Ledger")
+    
+    # Sort data: Newest first
+    display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
+
+    # 1. Professional Grid Table (HTML/CSS)
+    # This creates the black borders and ensures it doesn't break on mobile
+    table_html = """
+    <style>
+        .ledger-wrapper { overflow-x: auto; border: 1px solid #000; }
+        .ledger-table { width: 100%; border-collapse: collapse; min-width: 700px; font-family: sans-serif; }
+        .ledger-table th, .ledger-table td { border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px; }
+        .ledger-table th { background-color: #f2f2f2; }
+    </style>
+    <div class="ledger-wrapper">
+        <table class="ledger-table">
+            <tr>
+                <th>Time (IST)</th>
+                <th>Inspector</th>
+                <th>Job Code</th>
+                <th>Stage</th>
+                <th>Status</th>
+                <th>Photo</th>
+            </tr>
+    """
+    for i, row in display_df.iterrows():
+        photo_stat = "✅ Yes" if (isinstance(row["Photo"], str) and len(row["Photo"]) > 50) else "❌ No"
+        table_html += f"""
+            <tr>
+                <td>{row['Timestamp']}</td>
+                <td>{row['Inspector']}</td>
+                <td><b>{row['Job_Code']}</b></td>
+                <td>{row['Stage']}</td>
+                <td>{row['Status']}</td>
+                <td>{photo_stat}</td>
+            </tr>
+        """
+    table_html += "</table></div>"
+    
+    # Render the table
+    st.components.v1.html(table_html, height=350, scrolling=True)
+
+    # 2. Interactive Photo Viewer
+    st.write("---")
+    st.subheader("🔍 View Inspection Photo")
+    
+    # Filter only rows that have photos
+    photo_df = display_df[display_df["Photo"].astype(str).str.len() > 50].copy()
+    
+    if not photo_df.empty:
+        # Selectbox to pick which photo to see
+        options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_df.iterrows()}
+        selection = st.selectbox("Select a record to view photo:", options.keys(), format_func=lambda x: options[x])
+        
+        if selection is not None:
+            # Decode and display
+            img_b64 = photo_df.loc[selection, "Photo"]
+            st.image(base64.b64decode(img_b64), caption=f"Evidence for {photo_df.loc[selection, 'Job_Code']}", use_container_width=True)
+    else:
+        st.info("No photos available in the logs yet.")
+else:
+    st.info("No records found.")
