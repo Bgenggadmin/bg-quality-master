@@ -119,31 +119,44 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW ---
-# --- 6. HISTORY & PHOTO VIEW (Organized Card View) ---
+# --- 6. HISTORY & PHOTO VIEW (Perfectly Aligned Table) ---
 st.divider()
 if not df.empty:
     st.subheader("📜 Recent History & Photo View")
     
-    # Sort data: Newest first
+    # Sort by Newest First
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
     
+    # 1. Create the Header Row
+    # Widths: Time(2), Job(2), Stage(1.5), Notes(3), View(1)
+    h1, h2, h3, h4, h5 = st.columns([2, 2, 1.5, 3, 1])
+    h1.write("**Time (IST)**")
+    h2.write("**Job Code**")
+    h3.write("**Stage**")
+    h4.write("**Notes**")
+    h5.write("**Action**")
+    st.divider()
+
+    # 2. Create Data Rows
     for i, row in display_df.iterrows():
-        # This creates a "Card" for each record
-        with st.container(border=True):
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                st.markdown(f"**Job:** {row['Job_Code']} | **Stage:** {row['Stage']}")
-                st.caption(f"🕒 {row['Timestamp']} | 👤 {row['Inspector']}")
-                st.write(f"📝 {row['Notes']}")
-            
-            with col2:
-                # Row-specific View Button
-                if isinstance(row["Photo"], str) and row["Photo"] != "":
-                    if st.button("👁️ View", key=f"btn_{i}"):
-                        st.image(base64.b64decode(row["Photo"]), use_container_width=True)
-                else:
-                    st.write("🚫 No Photo")
+        r1, r2, r3, r4, r5 = st.columns([2, 2, 1.5, 3, 1])
+        
+        # Display Text Data
+        r1.write(f"🕒 {row['Timestamp']}")
+        r2.write(f"🏗️ {row['Job_Code']}")
+        r3.write(row['Stage'])
+        r4.write(row['Notes'])
+        
+        # Action Button for Photo
+        if isinstance(row["Photo"], str) and row["Photo"] != "":
+            if r5.button("👁️ View", key=f"tbl_btn_{i}"):
+                # Displays photo directly under the row being viewed
+                st.image(base64.b64decode(row["Photo"]), caption=f"Photo: {row['Job_Code']} - {row['Stage']}", width=500)
+        else:
+            r5.write("No Photo")
+        
+        # Add a subtle line between rows for clarity
+        st.markdown("---")
+
 else:
     st.info("No records found in the database.")
