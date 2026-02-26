@@ -17,7 +17,7 @@ try:
     REPO_NAME = st.secrets["GITHUB_REPO"]
     TOKEN = st.secrets["GITHUB_TOKEN"]
 except Exception:
-    st.error("❌ Secrets missing!")
+    st.error("❌ Secrets missing! Please check Streamlit Cloud Secrets.")
     st.stop()
 
 st.set_page_config(page_title="B&G Quality Master", layout="wide")
@@ -31,7 +31,8 @@ def save_to_github(dataframe):
         contents = repo.get_contents(DB_FILE)
         repo.update_file(contents.path, f"QC Sync {datetime.now(IST)}", csv_content, contents.sha)
         return True
-    except: return False
+    except: 
+        return False
 
 def load_data():
     if os.path.exists(DB_FILE):
@@ -41,9 +42,10 @@ def load_data():
 def get_production_jobs():
     try:
         return sorted(pd.read_csv(RAW_PROD_URL)["Job_Code"].dropna().unique().tolist())
-    except: return []
+    except: 
+        return []
 
-# --- 3. SESSION STATE FOR DYNAMIC UPDATES ---
+# --- 3. SESSION STATE ---
 df = load_data()
 if 'jobs' not in st.session_state:
     st.session_state.jobs = get_production_jobs()
@@ -52,13 +54,11 @@ if 'inspectors' not in st.session_state:
 if 'stages' not in st.session_state:
     st.session_state.stages = sorted(df["Stage"].dropna().unique().tolist()) if not df.empty else ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
 
-# --- 4. THE "ADD NEW" SECTION (With Buttons) ---
 st.title("🛡️ B&G Quality Master")
 
+# --- 4. THE "ADD NEW" SECTION ---
 with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
     c1, c2, c3 = st.columns(3)
-    
-    # ADD NEW JOB
     nj = c1.text_input("New Job Code")
     if c1.button("Add Job"):
         if nj and nj not in st.session_state.jobs:
@@ -66,7 +66,6 @@ with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
             st.session_state.jobs.sort()
             st.success(f"Added {nj}")
     
-    # ADD NEW INSPECTOR
     ni = c2.text_input("New Inspector")
     if c2.button("Add Inspector"):
         if ni and ni not in st.session_state.inspectors:
@@ -74,7 +73,6 @@ with st.expander("➕ ADD NEW OPTIONS TO LISTS"):
             st.session_state.inspectors.sort()
             st.success(f"Added {ni}")
             
-    # ADD NEW STAGE
     ns = c3.text_input("New Stage")
     if c3.button("Add Stage"):
         if ns and ns not in st.session_state.stages:
@@ -88,11 +86,9 @@ st.divider()
 with st.form("main_form", clear_on_submit=True):
     st.subheader("📝 Log Inspection")
     col1, col2 = st.columns(2)
-    
     with col1:
         job_code = st.selectbox("Select Job Code", ["-- Select --"] + st.session_state.jobs)
         inspector = st.selectbox("Select Inspector", ["-- Select --"] + st.session_state.inspectors)
-        
     with col2:
         stage = st.selectbox("Select Stage", ["-- Select --"] + st.session_state.stages)
         status = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
@@ -123,8 +119,37 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY ---
+# --- 6. HISTORY & PHOTO VIEW ---
 st.divider()
 if not df.empty:
-    st.subheader("📜 Recent History")
-    st.dataframe(df[["Timestamp", "Inspector", "Job_Code", "Stage", "Status", "Notes"]].sort_values(by="Timestamp", ascending=False), use_container_width=True)
+    st.subheader("📜 Recent History & Photo View")
+    
+    # Sort data for the table
+    display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
+    
+    # Column headers for the custom table
+    cols = st.columns([2, 2, 2, 2, 3, 1.5])
+    cols[0].write("**Time (IST)**")
+    cols[1].write("**Inspector**")
+    cols[2].write("**Job Code**")
+    cols[3].write("**Stage**")
+    cols[4].write("**Notes**")
+    cols[5].write("**Action**")
+
+    for i, row in display_df.iterrows():
+        c = st.columns([2, 2, 2, 2, 3, 1.5])
+        c[0].write(row["Timestamp"])
+        c[1].write(row["Inspector"])
+        c[2].write(row["Job_Code"])
+        c[3].write(row["Stage"])
+        c[4].write(row["Notes"])
+        
+        # Action button to view photo
+        if isinstance(row["Photo"], str) and row["Photo"] != "":
+            if c[5].button("👁️ View", key=f"btn_{i}"):
+                st.info(f"Viewing Photo for {row['Job_Code']} - {row['Stage']}")
+                st.image(base64.b64decode(row["Photo"]), width=400)
+        else:
+            c[5].write("No Photo")
+else:
+    st.info("No records found in the database.")
