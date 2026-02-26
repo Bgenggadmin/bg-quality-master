@@ -119,56 +119,94 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW (The Professional Ledger) ---
+# --- 6. HISTORY & PHOTO VIEW (The Final "Strict Ledger" Fix) ---
 st.divider()
 if not df.empty:
     st.subheader("📋 Quality Inspection Ledger")
     
-    # Sort data: Newest entries at the top
+    # Sort data: Newest first
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
 
-    # Custom CSS to force grid lines and prevent vertical stacking
+    # 1. THE PERFECT GRID CSS
+    # This locks the table, adds borders to every cell, and prevents text stacking
     st.markdown("""
         <style>
-            [data-testid="stHorizontalBlock"] {
-                border: 1px solid #ddd;
-                margin-bottom: -1px; /* Overlap borders for a clean grid look */
+            .ledger-wrapper {
+                width: 100%;
+                overflow-x: auto; /* Enables horizontal swipe on mobile */
+                border: 1px solid #444;
+            }
+            .ledger-table {
+                width: 100%;
+                border-collapse: collapse;
+                min-width: 900px; /* Forces a wide horizontal layout on iPhone */
                 background-color: white;
             }
-            [data-testid="column"] {
-                border-right: 1px solid #ddd;
-                padding: 10px !important;
-                min-width: 100px;
+            .ledger-table th, .ledger-table td {
+                border: 1px solid #000 !important; /* Forces visible black grid lines */
+                padding: 10px;
+                text-align: left;
+                font-size: 13px;
+                color: black;
+                white-space: nowrap; /* Prevents text from wrapping and stacking */
             }
-            [data-testid="column"]:last-child { border-right: none; }
+            .ledger-table th {
+                background-color: #eeeeee;
+                font-weight: bold;
+                position: sticky;
+                top: 0;
+            }
         </style>
     """, unsafe_allow_html=True)
 
-    # 1. FIXED HEADER ROW
-    # Ratios: [Time, Job, Stage, Remarks, Action]
-    cols_header = st.columns([1.5, 2, 1.2, 3, 1])
-    cols_header[0].markdown("**Time (IST)**")
-    cols_header[1].markdown("**Job Code**")
-    cols_header[2].markdown("**Stage**")
-    cols_header[3].markdown("**Observations**")
-    cols_header[4].markdown("**View**")
+    # 2. BUILD THE RIGID HTML GRID
+    table_html = '<div class="ledger-wrapper"><table class="ledger-table"><thead><tr>'
+    table_html += '<th>Time (IST)</th><th>Job Code</th><th>Stage</th><th>Observations / Remarks</th><th>Action</th>'
+    table_html += '</tr></thead><tbody>'
 
-    # 2. ALIGNED DATA ROWS
     for i, row in display_df.iterrows():
-        cols = st.columns([1.5, 2, 1.2, 3, 1])
+        notes = row["Notes"] if pd.notna(row["Notes"]) else "-"
+        # We use a simple text indicator for the photo in the grid
+        photo_status = "✅ Photo" if (isinstance(row["Photo"], str) and row["Photo"] != "") else "❌ None"
         
-        cols[0].write(row["Timestamp"])
-        cols[1].write(f"**{row['Job_Code']}**")
-        cols[2].write(row["Stage"])
-        cols[3].write(row["Notes"] if pd.notna(row["Notes"]) else "-")
+        table_html += f"""
+        <tr>
+            <td>{row['Timestamp']}</td>
+            <td><b>{row['Job_Code']}</b></td>
+            <td>{row['Stage']}</td>
+            <td>{notes}</td>
+            <td>{photo_status}</td>
+        </tr>
+        """
+    table_html += "</tbody></table></div>"
+    
+    # 3. RENDER THE GRID
+    st.markdown(table_html, unsafe_allow_html=True)
+    st.caption("👈 Swipe left/right on mobile to see all columns")
+
+    # 4. THE INTERACTIVE PHOTO VIEWER
+    # Buttons inside strict HTML tables don't work well on mobile. 
+    # This dropdown is the most stable way to view photos on an iPhone.
+    st.write("---")
+    st.subheader("🔍 Evidence Photo Viewer")
+    
+    # Filter only rows that have photos
+    photo_rows = display_df[display_df["Photo"].str.len() > 10]
+    
+    if not photo_rows.empty:
+        selection = st.selectbox(
+            "Select a record to view the inspection photo:",
+            options=photo_rows.index,
+            format_func=lambda x: f"{photo_rows.loc[x, 'Timestamp']} | {photo_rows.loc[x, 'Job_Code']} | {photo_rows.loc[x, 'Stage']}"
+        )
         
-        # Row-wise Photo Action
-        if isinstance(row["Photo"], str) and row["Photo"] != "":
-            if cols[4].button("👁️", key=f"ledger_v_{i}"):
-                st.info(f"Viewing: {row['Job_Code']} - {row['Stage']}")
-                st.image(base64.b64decode(row["Photo"]), use_container_width=True)
-        else:
-            cols[4].write("-")
+        if selection is not None:
+            selected_img = photo_rows.loc[selection, "Photo"]
+            st.image(base64.b64decode(selected_img), 
+                     caption=f"B&G Evidence: {photo_rows.loc[selection, 'Job_Code']}", 
+                     use_container_width=True)
+    else:
+        st.info("No photos available to display.")
 
 else:
     st.info("No records found in the database.")
