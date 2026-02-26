@@ -119,7 +119,9 @@ with st.form("main_form", clear_on_submit=True):
                 st.success("✅ Log Saved!")
                 st.rerun()
 
-# --- 6. HISTORY & PHOTO VIEW (The Final "Strict Ledger" Fix) ---
+import streamlit.components.v1 as components
+
+# --- 6. HISTORY & PHOTO VIEW (The Final Ledger Fix) ---
 st.divider()
 if not df.empty:
     st.subheader("📋 Quality Inspection Ledger")
@@ -127,86 +129,65 @@ if not df.empty:
     # Sort data: Newest first
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
 
-    # 1. THE PERFECT GRID CSS
-    # This locks the table, adds borders to every cell, and prevents text stacking
-    st.markdown("""
-        <style>
-            .ledger-wrapper {
-                width: 100%;
-                overflow-x: auto; /* Enables horizontal swipe on mobile */
-                border: 1px solid #444;
-            }
-            .ledger-table {
-                width: 100%;
-                border-collapse: collapse;
-                min-width: 900px; /* Forces a wide horizontal layout on iPhone */
-                background-color: white;
-            }
-            .ledger-table th, .ledger-table td {
-                border: 1px solid #000 !important; /* Forces visible black grid lines */
-                padding: 10px;
-                text-align: left;
-                font-size: 13px;
-                color: black;
-                white-space: nowrap; /* Prevents text from wrapping and stacking */
-            }
-            .ledger-table th {
-                background-color: #eeeeee;
-                font-weight: bold;
-                position: sticky;
-                top: 0;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # 2. BUILD THE RIGID HTML GRID
-    table_html = '<div class="ledger-wrapper"><table class="ledger-table"><thead><tr>'
-    table_html += '<th>Time (IST)</th><th>Job Code</th><th>Stage</th><th>Observations / Remarks</th><th>Action</th>'
-    table_html += '</tr></thead><tbody>'
+    # 1. THE RIGID GRID HTML & CSS
+    table_html = """
+    <style>
+        .ledger-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: sans-serif;
+            min-width: 800px; /* Forces horizontal scroll on mobile */
+        }
+        .ledger-table th, .ledger-table td {
+            border: 1px solid #000; /* Black grid lines */
+            padding: 10px;
+            text-align: left;
+            font-size: 14px;
+        }
+        .ledger-table th { background-color: #f2f2f2; font-weight: bold; }
+    </style>
+    <div style="overflow-x: auto;">
+        <table class="ledger-table">
+            <thead>
+                <tr>
+                    <th>Time (IST)</th>
+                    <th>Job Code</th>
+                    <th>Stage</th>
+                    <th>Observations</th>
+                    <th>Photo Status</th>
+                </tr>
+            </thead>
+            <tbody>
+    """
 
     for i, row in display_df.iterrows():
         notes = row["Notes"] if pd.notna(row["Notes"]) else "-"
-        # We use a simple text indicator for the photo in the grid
-        photo_status = "✅ Photo" if (isinstance(row["Photo"], str) and row["Photo"] != "") else "❌ None"
-        
-        table_html += f"""
-        <tr>
-            <td>{row['Timestamp']}</td>
-            <td><b>{row['Job_Code']}</b></td>
-            <td>{row['Stage']}</td>
-            <td>{notes}</td>
-            <td>{photo_status}</td>
-        </tr>
-        """
+        photo_status = "✅ Photo" if (isinstance(row["Photo"], str) and len(row["Photo"]) > 10) else "❌ None"
+        table_html += f"<tr><td>{row['Timestamp']}</td><td><b>{row['Job_Code']}</b></td><td>{row['Stage']}</td><td>{notes}</td><td>{photo_status}</td></tr>"
+
     table_html += "</tbody></table></div>"
     
-    # 3. RENDER THE GRID
-    st.markdown(table_html, unsafe_allow_html=True)
-    st.caption("👈 Swipe left/right on mobile to see all columns")
+    # 2. RENDER AS A COMPONENT (Fixes the raw code view issue)
+    components.html(table_html, height=500, scrolling=True)
 
-    # 4. THE INTERACTIVE PHOTO VIEWER
-    # Buttons inside strict HTML tables don't work well on mobile. 
-    # This dropdown is the most stable way to view photos on an iPhone.
+    # 3. INTERACTIVE PHOTO VIEWER
     st.write("---")
-    st.subheader("🔍 Evidence Photo Viewer")
+    st.subheader("🔍 View Inspection Evidence")
     
-    # Filter only rows that have photos
-    photo_rows = display_df[display_df["Photo"].str.len() > 10]
+    # Filter rows with actual photos
+    photo_rows = display_df[display_df["Photo"].astype(str).str.len() > 10]
     
     if not photo_rows.empty:
-        selection = st.selectbox(
-            "Select a record to view the inspection photo:",
-            options=photo_rows.index,
-            format_func=lambda x: f"{photo_rows.loc[x, 'Timestamp']} | {photo_rows.loc[x, 'Job_Code']} | {photo_rows.loc[x, 'Stage']}"
-        )
+        # User picks the record from a clean list
+        options = {i: f"{r['Timestamp']} | {r['Job_Code']} | {r['Stage']}" for i, r in photo_rows.iterrows()}
+        selection = st.selectbox("Select record to see photo:", options.keys(), format_func=lambda x: options[x])
         
         if selection is not None:
-            selected_img = photo_rows.loc[selection, "Photo"]
-            st.image(base64.b64decode(selected_img), 
-                     caption=f"B&G Evidence: {photo_rows.loc[selection, 'Job_Code']}", 
+            st.image(base64.b64decode(photo_rows.loc[selection, "Photo"]), 
+                     caption=f"Evidence: {photo_rows.loc[selection, 'Job_Code']}", 
                      use_container_width=True)
     else:
-        st.info("No photos available to display.")
+        st.info("No photos available in the logs.")
 
 else:
     st.info("No records found in the database.")
