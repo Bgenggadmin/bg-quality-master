@@ -130,16 +130,18 @@ with st.form("main_form", clear_on_submit=True):
                 st.rerun()
 
 # --- 6. HISTORY & PHOTO SELECTION ---
+# --- 6. HISTORY & PHOTO SELECTION ---
 st.divider()
 if not df.empty:
     st.subheader("📜 Quality Inspection Ledger")
     
     display_df = df.sort_values(by="Timestamp", ascending=False).reset_index(drop=True)
 
+    # Added 'Notes' to the table headers and logic below
     table_html = """
     <style>
         .ledger-wrapper { overflow-x: auto; border: 1px solid #000; }
-        .ledger-table { width: 100%; border-collapse: collapse; min-width: 800px; font-family: sans-serif; }
+        .ledger-table { width: 100%; border-collapse: collapse; min-width: 900px; font-family: sans-serif; }
         .ledger-table th, .ledger-table td { border: 1px solid #000; padding: 10px; text-align: left; font-size: 14px; }
         .ledger-table th { background-color: #f2f2f2; font-weight: bold; }
     </style>
@@ -151,11 +153,15 @@ if not df.empty:
                 <th>Job Code</th>
                 <th>Stage</th>
                 <th>Status</th>
+                <th>Observations (Notes)</th>
                 <th>Evidence</th>
             </tr>
     """
     for i, row in display_df.iterrows():
         has_photo = "✅ Photo" if (isinstance(row["Photo"], str) and len(row["Photo"]) > 50) else "❌ None"
+        # Extract notes safely, handling empty values
+        note_text = row['Notes'] if pd.notna(row['Notes']) else ""
+        
         table_html += f"""
             <tr>
                 <td>{row['Timestamp']}</td>
@@ -163,6 +169,7 @@ if not df.empty:
                 <td><b>{row['Job_Code']}</b></td>
                 <td>{row['Stage']}</td>
                 <td>{row['Status']}</td>
+                <td>{note_text}</td>
                 <td>{has_photo}</td>
             </tr>
         """
@@ -183,7 +190,7 @@ if not df.empty:
         if photo_selection is not None:
             st.image(base64.b64decode(photo_only_df.loc[photo_selection, "Photo"]), 
                      caption=f"B&G Evidence: {photo_only_df.loc[photo_selection, 'Job_Code']}", 
-                     width=400) # Displaying at optimized width
+                     width=400) 
     else:
         st.info("No inspection photos found in the current logs.")
 else:
