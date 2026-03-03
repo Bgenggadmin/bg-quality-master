@@ -53,10 +53,11 @@ if not df.empty:
     all_jobs = sorted(list(set(get_production_jobs() + df["Job_Code"].dropna().unique().tolist())))
     all_stages = sorted(list(set(base_stages + df["Stage"].dropna().unique().tolist())))
     
-    # Clean lists
-    all_inspectors = [i for i in all_inspectors if i not in ["N/A", ""]]
-    all_jobs = [j for j in all_jobs if j not in ["N/A", ""]]
-    all_workers = [w for w in all_workers if w not in ["N/A", ""]]
+    # Clean lists of placeholders
+    all_inspectors = [i for i in all_inspectors if i not in ["N/A", "", "None"]]
+    all_jobs = [j for j in all_jobs if j not in ["N/A", "", "None"]]
+    all_workers = [w for w in all_workers if w not in ["N/A", "", "None"]]
+    all_stages = [s for s in all_stages if s not in ["N/A", "", "None"]]
 else:
     all_inspectors = sorted(base_inspectors)
     all_jobs = get_production_jobs()
@@ -80,9 +81,9 @@ if menu == "Inspection Entry":
         rem = st.text_area("Observations")
         cam = st.camera_input("Capture Photo")
         
-        if st.form_submit_button("🚀 Submit"):
+        if st.form_submit_button("🚀 Submit Inspection"):
             if "-- Select --" in [job, ins, stg, wrk]:
-                st.warning("⚠️ Please fill all required fields (Job, Worker, Inspector, Stage).")
+                st.warning("⚠️ Please fill all required fields.")
             else:
                 img_str = ""
                 if cam:
@@ -93,58 +94,104 @@ if menu == "Inspection Entry":
                     img_str = base64.b64encode(buf.getvalue()).decode()
                 
                 payload = {
+                    "created_at": datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'),
                     "Inspector": ins, "Worker": wrk, "Job_Code": job, 
                     "Stage": stg, "Status": sts, "Notes": rem, "Photo": img_str
                 }
                 supabase.table("quality").insert(payload).execute()
-                st.success("✅ Saved!")
+                st.success("✅ Inspection Saved!")
                 st.rerun()
 
-# --- PAGE 2: MANAGE LISTS (DYNAMIC ADD) ---
+    st.divider()
+    
+    # --- SUMMARY TABLE (LEDGER) ---
+    st.subheader("📋 Quality Inspection History")
+    if not df.empty:
+        # Filter out system entries
+        view_df = df[df['Notes'] != "SYS"].copy()
+        if not view_df.empty:
+            view_df = view_df.rename(columns={'id': 'ID', 'created_at': 'Timestamp'})
+            view_df['Timestamp'] = pd.to_datetime(view_df['Timestamp']).dt.strftime('%d-%m-%Y %H:%M')
+            
+            # Reorder columns for better visibility
+            cols = ['ID', 'Timestamp', 'Job_Code', 'Worker', 'Inspector', 'Stage', 'Status', 'Notes']
+            st.dataframe(view_df[cols], use_container_width=True)
+
+            # DELETE ACCIDENTAL ENTRY
+            st.markdown("### 🗑️ Remove Accidental Entry")
+            del_id = st.selectbox("Select ID to delete:", ["-- Select --"] + view_df['ID'].tolist())
+            if st.button("Permanently Delete"):
+                if del_id != "-- Select --":
+                    supabase.table("quality").delete().eq("id", del_id).execute()
+                    st.success(f"Entry {del_id} removed.")
+                    st.rerun()
+        else:
+            st.info("No inspection records found.")
+
+# --- PAGE 2: MANAGE LISTS ---
 elif menu == "Manage Lists (Add New)":
-    st.title("🗂️ Manage Lists")
+    st.title("🗂️ Manage App Dropdowns")
     c1, c2 = st.columns(2)
     with c1:
-        new_j = st.text_input("Add New Job Code")
-        if st.button("Save Job"):
-            supabase.table("quality").insert({"Job_Code": new_j, "Notes": "SYS", "Inspector": "N/A", "Worker": "N/A"}).execute()
+        st.subheader("Add Worker")
+        new_w = st.text_input("New Worker Name")
+        if st.button("Save Worker") and new_w:
+            supabase.table("quality").insert({"Worker": new_w, "Notes": "SYS", "Job_Code": "N/A", "Inspector": "N/A"}).execute()
+            st.success("Worker added!")
             st.rerun()
             
-        new_w = st.text_input("Add New Worker")
-        if st.button("Save Worker"):
-            supabase.table("quality").insert({"Worker": new_w, "Notes": "SYS", "Job_Code": "N/A", "Inspector": "N/A"}).execute()
+        st.subheader("Add Job Code")
+        new_j = st.text_input("New Job Code")
+        if st.button("Save Job") and new_j:
+            supabase.table("quality").insert({"Job_Code": new_j, "Notes": "SYS", "Inspector": "N/A", "Worker": "N/A"}).execute()
+            st.success("Job Code added!")
             st.rerun()
     with c2:
-        new_i = st.text_input("Add New Inspector")
-        if st.button("Save Inspector"):
+        st.subheader("Add Inspector")
+        new_i = st.text_input("New Inspector")
+        if st.button("Save Inspector") and new_i:
             supabase.table("quality").insert({"Inspector": new_i, "Notes": "SYS", "Job_Code": "N/A", "Worker": "N/A"}).execute()
+            st.success("Inspector added!")
             st.rerun()
 
-# --- PAGE 4: MIGRATION (STRICT COLUMN MAPPING) ---
+        st.subheader("Add Stage")
+        new_st = st.text_input("New Inspection Stage")
+        if st.button("Save Stage") and new_st:
+            supabase.table("quality").insert({"Stage": new_st, "Notes": "SYS", "Job_Code": "N/A", "Worker": "N/A"}).execute()
+            st.success("Stage added!")
+            st.rerun()
+
+# --- PAGE 3: PHOTO VIEWER ---
+elif menu == "View Evidence Photos":
+    st.title("🔍 Photo Evidence Gallery")
+    photo_df = df[df['Photo'].str.len() > 50].copy() if not df.empty else pd.DataFrame()
+    if not photo_df.empty:
+        photo_df['label'] = photo_df['Job_Code'] + " | " + photo_df['Stage']
+        choice = st.selectbox("Select Record:", photo_df['label'].tolist())
+        if choice:
+            row = photo_df[photo_df['label'] == choice].iloc[0]
+            st.image(base64.b64decode(row['Photo']), width=600)
+            st.write(f"**Inspector:** {row['Inspector']} | **Status:** {row['Status']}")
+    else:
+        st.info("No photos found.")
+
+# --- PAGE 4: MIGRATION ---
 elif menu == "Migration Tool":
     st.title("📂 Migration")
-    if st.button("🚀 Start Migration"):
+    if st.button("🚀 Run Migration"):
         if os.path.exists("quality_logs.csv"):
-            try:
-                old_df = pd.read_csv("quality_logs.csv").fillna("")
-                
-                # Manual Mapping to prevent Schema Cache Errors
-                records = []
-                for _, row in old_df.iterrows():
-                    records.append({
-                        "Inspector": str(row.get('Inspector', 'N/A')),
-                        "Worker": str(row.get('Worker', 'N/A')),
-                        "Job_Code": str(row.get('Job_Code', 'N/A')),
-                        "Stage": str(row.get('Stage', 'N/A')),
-                        "Status": str(row.get('Status', 'N/A')),
-                        "Notes": str(row.get('Notes', '')),
-                        "Photo": str(row.get('Photo', ''))
-                    })
-                
-                # Small batches for photos
-                for i in range(0, len(records), 5):
-                    supabase.table("quality").insert(records[i:i+5]).execute()
-                
-                st.success("✅ Done!")
-            except Exception as e:
-                st.error(f"Error: {e}")
+            old_df = pd.read_csv("quality_logs.csv").fillna("")
+            records = []
+            for _, r in old_df.iterrows():
+                records.append({
+                    "Inspector": str(r.get('Inspector', 'N/A')),
+                    "Worker": str(r.get('Worker', 'N/A')),
+                    "Job_Code": str(r.get('Job_Code', 'N/A')),
+                    "Stage": str(r.get('Stage', 'N/A')),
+                    "Status": str(r.get('Status', 'N/A')),
+                    "Notes": str(r.get('Notes', '')),
+                    "Photo": str(r.get('Photo', ''))
+                })
+            for i in range(0, len(records), 5):
+                supabase.table("quality").insert(records[i:i+5]).execute()
+            st.success("Migration complete!")
