@@ -8,7 +8,7 @@ from io import BytesIO
 from PIL import Image
 from supabase import create_client, Client
 
-# --- 1. SETUP ---
+# --- 1. SETUP & TIMEZONE ---
 IST = pytz.timezone('Asia/Kolkata')
 st.set_page_config(page_title="B&G Quality Master", layout="wide", page_icon="🛡️")
 
@@ -23,6 +23,7 @@ except Exception:
 # --- 2. DATABASE FUNCTIONS ---
 def load_quality_data():
     try:
+        # Fetching data - sorting by created_at ensures newest logs are on top
         response = supabase.table("quality").select("*").order("created_at", desc=True).execute()
         return pd.DataFrame(response.data) if response.data else pd.DataFrame()
     except:
@@ -49,11 +50,11 @@ base_stages = ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
 
 if not df.empty:
     all_inspectors = sorted(list(set(base_inspectors + df["Inspector"].dropna().unique().tolist())))
+    # Filter out placeholders for workers
     all_workers = sorted(df["Worker"].dropna().unique().tolist()) if "Worker" in df.columns else []
     all_jobs = sorted(list(set(get_production_jobs() + df["Job_Code"].dropna().unique().tolist())))
     all_stages = sorted(list(set(base_stages + df["Stage"].dropna().unique().tolist())))
     
-    # Clean lists of placeholders
     all_inspectors = [i for i in all_inspectors if i not in ["N/A", "", "None"]]
     all_jobs = [j for j in all_jobs if j not in ["N/A", "", "None"]]
     all_workers = [w for w in all_workers if w not in ["N/A", "", "None"]]
@@ -93,13 +94,16 @@ if menu == "Inspection Entry":
                     img.save(buf, format="JPEG", quality=40)
                     img_str = base64.b64encode(buf.getvalue()).decode()
                 
+                # PRECISE IST TIMESTAMP
+                current_time_ist = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+                
                 payload = {
-                    "created_at": datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'),
+                    "created_at": current_time_ist,
                     "Inspector": ins, "Worker": wrk, "Job_Code": job, 
                     "Stage": stg, "Status": sts, "Notes": rem, "Photo": img_str
                 }
                 supabase.table("quality").insert(payload).execute()
-                st.success("✅ Inspection Saved!")
+                st.success(f"✅ Inspection Saved at {datetime.now(IST).strftime('%H:%M')} IST")
                 st.rerun()
 
     st.divider()
@@ -107,18 +111,19 @@ if menu == "Inspection Entry":
     # --- SUMMARY TABLE (LEDGER) ---
     st.subheader("📋 Quality Inspection History")
     if not df.empty:
-        # Filter out system entries
+        # Hide system entries (SYS)
         view_df = df[df['Notes'] != "SYS"].copy()
         if not view_df.empty:
             view_df = view_df.rename(columns={'id': 'ID', 'created_at': 'Timestamp'})
+            
+            # Formatting Date for Table View: 03-03-2026 14:30
             view_df['Timestamp'] = pd.to_datetime(view_df['Timestamp']).dt.strftime('%d-%m-%Y %H:%M')
             
-            # Reorder columns for better visibility
             cols = ['ID', 'Timestamp', 'Job_Code', 'Worker', 'Inspector', 'Stage', 'Status', 'Notes']
             st.dataframe(view_df[cols], use_container_width=True)
 
-            # DELETE ACCIDENTAL ENTRY
-            st.markdown("### 🗑️ Remove Accidental Entry")
+            # DELETE LOGIC
+            st.markdown("### 🗑️ Remove Entry")
             del_id = st.selectbox("Select ID to delete:", ["-- Select --"] + view_df['ID'].tolist())
             if st.button("Permanently Delete"):
                 if del_id != "-- Select --":
@@ -136,44 +141,49 @@ elif menu == "Manage Lists (Add New)":
         st.subheader("Add Worker")
         new_w = st.text_input("New Worker Name")
         if st.button("Save Worker") and new_w:
-            supabase.table("quality").insert({"Worker": new_w, "Notes": "SYS", "Job_Code": "N/A", "Inspector": "N/A"}).execute()
+            supabase.table("quality").insert({"Worker": new_w, "Notes": "SYS", "Job_Code": "N/A", "Inspector": "N/A", "Stage": "N/A"}).execute()
             st.success("Worker added!")
             st.rerun()
             
         st.subheader("Add Job Code")
         new_j = st.text_input("New Job Code")
         if st.button("Save Job") and new_j:
-            supabase.table("quality").insert({"Job_Code": new_j, "Notes": "SYS", "Inspector": "N/A", "Worker": "N/A"}).execute()
+            supabase.table("quality").insert({"Job_Code": new_j, "Notes": "SYS", "Inspector": "N/A", "Worker": "N/A", "Stage": "N/A"}).execute()
             st.success("Job Code added!")
             st.rerun()
     with c2:
         st.subheader("Add Inspector")
         new_i = st.text_input("New Inspector")
         if st.button("Save Inspector") and new_i:
-            supabase.table("quality").insert({"Inspector": new_i, "Notes": "SYS", "Job_Code": "N/A", "Worker": "N/A"}).execute()
+            supabase.table("quality").insert({"Inspector": new_i, "Notes": "SYS", "Job_Code": "N/A", "Worker": "N/A", "Stage": "N/A"}).execute()
             st.success("Inspector added!")
             st.rerun()
 
         st.subheader("Add Stage")
         new_st = st.text_input("New Inspection Stage")
         if st.button("Save Stage") and new_st:
-            supabase.table("quality").insert({"Stage": new_st, "Notes": "SYS", "Job_Code": "N/A", "Worker": "N/A"}).execute()
+            supabase.table("quality").insert({"Stage": new_st, "Notes": "SYS", "Job_Code": "N/A", "Worker": "N/A", "Inspector": "N/A"}).execute()
             st.success("Stage added!")
             st.rerun()
 
 # --- PAGE 3: PHOTO VIEWER ---
 elif menu == "View Evidence Photos":
     st.title("🔍 Photo Evidence Gallery")
-    photo_df = df[df['Photo'].str.len() > 50].copy() if not df.empty else pd.DataFrame()
+    # Only show records that have actual photo data
+    photo_df = df[df['Photo'].str.len() > 100].copy() if not df.empty else pd.DataFrame()
     if not photo_df.empty:
-        photo_df['label'] = photo_df['Job_Code'] + " | " + photo_df['Stage']
+        # Create a display label with formatted date
+        photo_df['DisplayDate'] = pd.to_datetime(photo_df['created_at']).dt.strftime('%d-%m %H:%M')
+        photo_df['label'] = photo_df['Job_Code'] + " | " + photo_df['Stage'] + " (" + photo_df['DisplayDate'] + ")"
+        
         choice = st.selectbox("Select Record:", photo_df['label'].tolist())
         if choice:
             row = photo_df[photo_df['label'] == choice].iloc[0]
-            st.image(base64.b64decode(row['Photo']), width=600)
+            st.image(base64.b64decode(row['Photo']), use_container_width=True, width=600)
             st.write(f"**Inspector:** {row['Inspector']} | **Status:** {row['Status']}")
+            st.info(f"**Notes:** {row['Notes']}")
     else:
-        st.info("No photos found.")
+        st.info("No photos found in the database.")
 
 # --- PAGE 4: MIGRATION ---
 elif menu == "Migration Tool":
@@ -183,7 +193,15 @@ elif menu == "Migration Tool":
             old_df = pd.read_csv("quality_logs.csv").fillna("")
             records = []
             for _, r in old_df.iterrows():
+                # Parse old date and convert to IST string for Supabase
+                try:
+                    raw_ts = r.get('Timestamp', datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'))
+                    clean_ts = pd.to_datetime(raw_ts, dayfirst=True, errors='coerce').strftime('%Y-%m-%d %H:%M:%S')
+                except:
+                    clean_ts = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+
                 records.append({
+                    "created_at": clean_ts,
                     "Inspector": str(r.get('Inspector', 'N/A')),
                     "Worker": str(r.get('Worker', 'N/A')),
                     "Job_Code": str(r.get('Job_Code', 'N/A')),
@@ -192,6 +210,8 @@ elif menu == "Migration Tool":
                     "Notes": str(r.get('Notes', '')),
                     "Photo": str(r.get('Photo', ''))
                 })
+            # Batching to handle photo weight
             for i in range(0, len(records), 5):
                 supabase.table("quality").insert(records[i:i+5]).execute()
-            st.success("Migration complete!")
+            st.success("Migration complete! All timestamps converted to IST.")
+            st.rerun()
