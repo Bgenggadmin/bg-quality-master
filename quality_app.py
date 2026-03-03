@@ -20,6 +20,7 @@ except:
     st.stop()
 
 # --- 2. DATA LOADING ---
+@st.cache_data(ttl=5)
 def load_all_records():
     try:
         # Fetches newest data first
@@ -34,8 +35,10 @@ df = load_all_records()
 def get_clean_list(dataframe, column_name, defaults=[]):
     if dataframe.empty:
         return sorted(defaults)
+    # Ensure column exists before processing
+    if column_name not in dataframe.columns:
+        return sorted(defaults)
     raw_values = dataframe[column_name].astype(str).unique().tolist()
-    # Filter out placeholders and nulls
     clean = [x.strip() for x in raw_values if x.strip() not in ["N/A", "", "None", "nan", "NULL"]]
     return sorted(list(set(clean + defaults)))
 
@@ -84,6 +87,7 @@ if menu == "📝 Inspection Entry":
                     "Inspector": ins_choice, "Stage": stg_choice, "Status": sts, "Notes": rem, "Photo": img_str
                 }
                 supabase.table("quality").insert(payload).execute()
+                st.cache_data.clear() # CLEAR CACHE SO NEW ENTRY SHOWS
                 st.success("✅ Record Successfully Synchronized.")
                 st.rerun()
 
@@ -92,8 +96,9 @@ if menu == "📝 Inspection Entry":
     # LEDGER DISPLAY
     st.subheader("📋 Quality Ledger")
     if not df.empty:
-        # Hide system entries
+        # Hide system entries (SYS) from the main view
         view_df = df[df['Notes'] != "SYS"].copy()
+        
         if not view_df.empty:
             view_df['Date'] = pd.to_datetime(view_df['created_at']).dt.strftime('%d-%m-%Y')
             view_df['Time'] = pd.to_datetime(view_df['created_at']).dt.strftime('%H:%M')
@@ -102,7 +107,7 @@ if menu == "📝 Inspection Entry":
             show_cols = ['id', 'Date', 'Time', 'Job_Code', 'Worker', 'Inspector', 'Stage', 'Status', '📸 Photo', 'Notes']
             st.dataframe(view_df[show_cols], use_container_width=True)
 
-            # --- CSV EXPORT BUTTON (Fixed Placement) ---
+            # --- CSV EXPORT BUTTON ---
             csv_data = view_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Download Ledger as CSV",
@@ -111,7 +116,7 @@ if menu == "📝 Inspection Entry":
                 mime='text/csv',
             )
 
-            # PHOTO PREVIEW AT THE BOTTOM
+            # PHOTO PREVIEW
             st.divider()
             photo_only = view_df[view_df['Photo'].astype(str).str.len() > 100].copy()
             if not photo_only.empty:
@@ -122,6 +127,8 @@ if menu == "📝 Inspection Entry":
                     img_data = str(row['Photo'])
                     if "," in img_data: img_data = img_data.split(",")[1]
                     st.image(base64.b64decode(img_data), width=600)
+        else:
+            st.info("No inspection records found yet.")
 
 # --- PAGE 2: MANAGE LISTS ---
 elif menu == "🗂️ Manage Lists":
@@ -138,6 +145,7 @@ elif menu == "🗂️ Manage Lists":
             "Status": "N/A", "Notes": "SYS", "Photo": ""
         }
         supabase.table("quality").insert(payload).execute()
+        st.cache_data.clear() # CRITICAL: Update dropdowns instantly
         st.success(f"✅ Added '{val}'")
         st.rerun()
 
