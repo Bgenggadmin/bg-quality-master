@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytz
-import os
 import base64
 from io import BytesIO
 from PIL import Image
@@ -10,20 +9,20 @@ from supabase import create_client, Client
 
 # --- 1. SETUP ---
 IST = pytz.timezone('Asia/Kolkata')
-st.set_page_config(page_title="B&G Quality Master", layout="wide")
+st.set_page_config(page_title="B&G Quality Master", layout="wide", page_icon="🛡️")
 
 try:
     URL = st.secrets["SUPABASE_URL"]
     KEY = st.secrets["SUPABASE_KEY"]
     supabase: Client = create_client(URL, KEY)
 except:
-    st.error("❌ Secrets missing!")
+    st.error("❌ Database Connection Error. Check Streamlit Secrets.")
     st.stop()
 
 # --- 2. DATA LOADING ---
-@st.cache_data(ttl=5) # Refresh every 5 seconds to catch new list items
 def load_all_records():
     try:
+        # Fetches newest data first
         response = supabase.table("quality").select("*").order("created_at", desc=True).execute()
         return pd.DataFrame(response.data) if response.data else pd.DataFrame()
     except:
@@ -31,39 +30,32 @@ def load_all_records():
 
 df = load_all_records()
 
-# --- 3. FIXED DYNAMIC DROPDOWNS (AGGRESSIVE SCAN) ---
-def get_clean_list(dataframe, column_name):
-    if dataframe.empty or column_name not in dataframe.columns:
-        return []
-    # Pull every unique value, convert to string, remove spaces, and filter out junk
-    raw_list = dataframe[column_name].astype(str).unique().tolist()
-    clean_list = [x.strip() for x in raw_list if x.strip() not in ["N/A", "", "None", "nan", "NULL"]]
-    return sorted(list(set(clean_list)))
+# --- 3. DYNAMIC DROPDOWN LOGIC ---
+def get_clean_list(dataframe, column_name, defaults=[]):
+    if dataframe.empty:
+        return sorted(defaults)
+    raw_values = dataframe[column_name].astype(str).unique().tolist()
+    # Filter out placeholders and nulls
+    clean = [x.strip() for x in raw_values if x.strip() not in ["N/A", "", "None", "nan", "NULL"]]
+    return sorted(list(set(clean + defaults)))
 
-# Generate lists
+# Generate final lists for the UI
 all_workers = get_clean_list(df, "Worker")
 all_jobs = get_clean_list(df, "Job_Code")
-
-# Default UI Lists
-base_inspectors = ["Subodth", "Prasanth", "RamaSai", "Naresh"]
-db_inspectors = get_clean_list(df, "Inspector")
-all_inspectors = sorted(list(set(base_inspectors + db_inspectors)))
-
-base_stages = ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
-db_stages = get_clean_list(df, "Stage")
-all_stages = sorted(list(set(base_stages + db_stages)))
+all_inspectors = get_clean_list(df, "Inspector", ["Subodth", "Prasanth", "RamaSai", "Naresh"])
+all_stages = get_clean_list(df, "Stage", ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"])
 
 # --- 4. NAVIGATION ---
-menu = st.sidebar.radio("Menu", ["📝 Inspection Entry", "🗂️ Manage Lists", "📂 Migration Tool"])
+st.sidebar.title("🛡️ Quality Menu")
+menu = st.sidebar.radio("Go to:", ["📝 Inspection Entry", "🗂️ Manage Lists"])
 
-# --- PAGE 1: ENTRY & LEDGER ---
+# --- PAGE 1: INSPECTION ENTRY & HISTORY ---
 if menu == "📝 Inspection Entry":
-    st.title("Quality Inspection Ledger")
+    st.title("Quality Inspection Entry")
     
     with st.form("entry_form", clear_on_submit=True):
         c1, c2 = st.columns(2)
         with c1:
-            # Use the dynamically generated lists here
             job_choice = st.selectbox("Job Code", ["-- Select --"] + all_jobs)
             worker_choice = st.selectbox("Worker Name", ["-- Select --"] + all_workers)
         with c2:
@@ -71,12 +63,12 @@ if menu == "📝 Inspection Entry":
             stg_choice = st.selectbox("Stage", ["-- Select --"] + all_stages)
         
         sts = st.radio("Status", ["Passed", "Rework", "Failed"], horizontal=True)
-        rem = st.text_area("Notes")
-        cam = st.camera_input("Photo Evidence")
+        rem = st.text_area("Observations / Notes")
+        cam = st.camera_input("📸 Take Photo")
 
-        if st.form_submit_button("Submit"):
+        if st.form_submit_button("🚀 Submit to Cloud"):
             if "-- Select --" in [job_choice, worker_choice, ins_choice, stg_choice]:
-                st.warning("⚠️ Please select all fields from the dropdowns.")
+                st.warning("⚠️ Please select all dropdown options.")
             else:
                 save_time = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
                 img_str = ""
@@ -92,14 +84,15 @@ if menu == "📝 Inspection Entry":
                     "Inspector": ins_choice, "Stage": stg_choice, "Status": sts, "Notes": rem, "Photo": img_str
                 }
                 supabase.table("quality").insert(payload).execute()
-                st.success("✅ Record Saved!")
-                st.cache_data.clear() # Clear cache to show new entry immediately
+                st.success("✅ Record Successfully Synchronized.")
                 st.rerun()
 
     st.divider()
     
     # LEDGER DISPLAY
+    st.subheader("📋 Quality Ledger")
     if not df.empty:
+        # Hide system entries
         view_df = df[df['Notes'] != "SYS"].copy()
         if not view_df.empty:
             view_df['Date'] = pd.to_datetime(view_df['created_at']).dt.strftime('%d-%m-%Y')
@@ -109,13 +102,24 @@ if menu == "📝 Inspection Entry":
             show_cols = ['id', 'Date', 'Time', 'Job_Code', 'Worker', 'Inspector', 'Stage', 'Status', '📸 Photo', 'Notes']
             st.dataframe(view_df[show_cols], use_container_width=True)
 
-# --- PAGE 2: MANAGE LISTS (FIXED RECOVERY) ---
+            # PHOTO PREVIEW AT THE BOTTOM
+            st.divider()
+            photo_only = view_df[view_df['Photo'].astype(str).str.len() > 100].copy()
+            if not photo_only.empty:
+                st.subheader("🔍 Evidence Preview")
+                pick = st.selectbox("Select ID to view photo:", ["-- Select ID --"] + photo_only['id'].astype(str).tolist())
+                if pick != "-- Select ID --":
+                    row = photo_only[photo_only['id'].astype(int) == int(pick)].iloc[0]
+                    img_data = str(row['Photo'])
+                    if "," in img_data: img_data = img_data.split(",")[1]
+                    st.image(base64.b64decode(img_data), width=600)
+
+# --- PAGE 2: MANAGE LISTS ---
 elif menu == "🗂️ Manage Lists":
-    st.title("Manage Dropdowns")
-    st.write("Add missing Workers or Job Codes here:")
+    st.title("Manage Master Dropdowns")
+    st.info("Add new items here to make them available in the entry form.")
     
-    def quick_add_system(col, val):
-        # We fill with 'SYS' so it stays hidden in ledger but visible in dropdowns
+    def add_sys_item(col, val):
         payload = {
             "created_at": datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'), 
             "Job_Code": val if col == "Job_Code" else "N/A", 
@@ -125,37 +129,22 @@ elif menu == "🗂️ Manage Lists":
             "Status": "N/A", "Notes": "SYS", "Photo": ""
         }
         supabase.table("quality").insert(payload).execute()
-        st.cache_data.clear()
-        st.success(f"Added '{val}' to lists.")
+        st.success(f"✅ Added '{val}'")
         st.rerun()
 
-    c1, c2 = st.columns(2)
-    with c1:
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Workers & Jobs")
         new_w = st.text_input("New Worker Name")
-        if st.button("Add Worker") and new_w: quick_add_system("Worker", new_w)
-    with c2:
+        if st.button("Save Worker") and new_w: add_sys_item("Worker", new_w)
+        
         new_j = st.text_input("New Job Code")
-        if st.button("Add Job") and new_j: quick_add_system("Job_Code", new_j)
-
-# --- PAGE 3: MIGRATION ---
-elif menu == "📂 Migration Tool":
-    st.title("Data Migration")
-    if st.button("🚀 Run Migration"):
-        if os.path.exists("quality_logs.csv"):
-            csv_df = pd.read_csv("quality_logs.csv").fillna("")
-            records = []
-            for _, r in csv_df.iterrows():
-                try:
-                    ts = pd.to_datetime(r.get('Timestamp', ''), dayfirst=True).strftime('%Y-%m-%d %H:%M:%S')
-                except:
-                    ts = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
-                records.append({
-                    "created_at": ts, "Job_Code": str(r.get('Job_Code', 'N/A')),
-                    "Worker": str(r.get('Worker', 'N/A')), "Inspector": str(r.get('Inspector', 'N/A')),
-                    "Stage": str(r.get('Stage', 'N/A')), "Status": str(r.get('Status', 'Passed')),
-                    "Notes": str(r.get('Notes', '')), "Photo": str(r.get('Photo', ''))
-                })
-            for i in range(0, len(records), 5):
-                supabase.table("quality").insert(records[i:i+5]).execute()
-            st.cache_data.clear()
-            st.success("Migration Done!")
+        if st.button("Save Job") and new_j: add_sys_item("Job_Code", new_j)
+    
+    with col2:
+        st.subheader("Stages & Inspectors")
+        new_s = st.text_input("New Inspection Stage")
+        if st.button("Save Stage") and new_s: add_sys_item("Stage", new_s)
+        
+        new_i = st.text_input("New Inspector Name")
+        if st.button("Save Inspector") and new_i: add_sys_item("Inspector", new_i)
