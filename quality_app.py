@@ -186,17 +186,42 @@ elif menu == "View Evidence Photos":
         st.info("No photos found in the database.")
 
 # --- PAGE 4: MIGRATION ---
+# --- PAGE 1: FIXED ENTRY LOGIC ---
+if menu == "Inspection Entry":
+    # ... (form code) ...
+    if st.form_submit_button("🚀 Submit Inspection"):
+        # MANUALLY CREATE IST TIMESTAMP STRING
+        # This prevents Supabase from using its own UTC clock
+        current_time_ist = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+        
+        payload = {
+            "created_at": current_time_ist, # Manual IST override
+            "Inspector": ins, "Worker": wrk, "Job_Code": job, 
+            "Stage": stg, "Status": sts, "Notes": rem, "Photo": img_str
+        }
+        supabase.table("quality").insert(payload).execute()
+        st.success(f"✅ Saved at {current_time_ist}")
+
+# --- PAGE 4: FIXED MIGRATION (TIME OFFSET) ---
 elif menu == "Migration Tool":
-    st.title("📂 Migration")
+    st.title("📂 Migration with IST Correction")
     if st.button("🚀 Run Migration"):
         if os.path.exists("quality_logs.csv"):
             old_df = pd.read_csv("quality_logs.csv").fillna("")
             records = []
+            
             for _, r in old_df.iterrows():
-                # Parse old date and convert to IST string for Supabase
                 try:
-                    raw_ts = r.get('Timestamp', datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'))
-                    clean_ts = pd.to_datetime(raw_ts, dayfirst=True, errors='coerce').strftime('%Y-%m-%d %H:%M:%S')
+                    # 1. Parse the CSV time
+                    raw_ts = r.get('Timestamp', datetime.now(IST))
+                    dt_obj = pd.to_datetime(raw_ts, dayfirst=True)
+                    
+                    # 2. If the time is in UTC, we add 5.5 hours to move it to IST
+                    # This fixes the "yesterday showing as today" issue
+                    if dt_obj.tzinfo is None or dt_obj.tzinfo == pytz.UTC:
+                        dt_obj = dt_obj + pd.Timedelta(hours=5, minutes=30)
+                    
+                    clean_ts = dt_obj.strftime('%Y-%m-%d %H:%M:%S')
                 except:
                     clean_ts = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
 
@@ -210,8 +235,8 @@ elif menu == "Migration Tool":
                     "Notes": str(r.get('Notes', '')),
                     "Photo": str(r.get('Photo', ''))
                 })
-            # Batching to handle photo weight
+            
+            # Batching...
             for i in range(0, len(records), 5):
                 supabase.table("quality").insert(records[i:i+5]).execute()
-            st.success("Migration complete! All timestamps converted to IST.")
-            st.rerun()
+            st.success("Migration complete with IST Time Correction!")
