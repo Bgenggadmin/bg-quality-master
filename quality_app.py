@@ -8,66 +8,88 @@ from io import BytesIO
 from PIL import Image
 from supabase import create_client, Client
 
-# --- 1. SETUP ---
+# --- 1. CORE SETUP & TIMEZONE ---
 IST = pytz.timezone('Asia/Kolkata')
 st.set_page_config(page_title="B&G Quality Master", layout="wide", page_icon="🛡️")
 
+# Database Connection
 try:
     URL = st.secrets["SUPABASE_URL"]
     KEY = st.secrets["SUPABASE_KEY"]
     supabase: Client = create_client(URL, KEY)
 except Exception:
-    st.error("❌ Secrets missing!")
+    st.error("❌ Database Secrets missing! Please check Streamlit Cloud Settings.")
     st.stop()
 
-# --- 2. DATABASE FUNCTIONS ---
-def load_quality_data():
+# --- 2. DATA UTILITY FUNCTIONS ---
+
+def load_all_data():
+    """Fetches all records, newest first."""
     try:
-        # We fetch from DB (YYYY-MM-DD) but we will format it in Python
         response = supabase.table("quality").select("*").order("created_at", desc=True).execute()
         return pd.DataFrame(response.data) if response.data else pd.DataFrame()
     except:
         return pd.DataFrame()
 
-df = load_quality_data()
+def save_list_item(column_name, value):
+    """Helper to add new Workers/Stages/Inspectors to the database safely."""
+    payload = {
+        "created_at": datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'),
+        "Job_Code": "N/A", "Worker": "N/A", "Inspector": "N/A", 
+        "Stage": "N/A", "Status": "N/A", "Notes": "SYS", "Photo": ""
+    }
+    payload[column_name] = value  # Update specific column with new name
+    try:
+        supabase.table("quality").insert(payload).execute()
+        st.success(f"✅ Added '{value}' successfully!")
+        st.rerun()
+    except Exception as e:
+        st.error(f"Error saving: {e}")
 
-# --- 3. DYNAMIC DROPDOWNS ---
+# Load data at the start
+df = load_all_data()
+
+# --- 3. DYNAMIC LIST LOGIC (For Dropdowns) ---
+
+# Default lists
+base_inspectors = ["Subodth", "Prasanth", "RamaSai", "Naresh"]
+base_stages = ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"]
+
 if not df.empty:
-    all_workers = sorted([w for w in df["Worker"].dropna().unique().tolist() if w not in ["N/A", ""]])
-    all_inspectors = sorted(list(set(["Subodth", "Prasanth", "RamaSai", "Naresh"] + df["Inspector"].dropna().unique().tolist())))
-    all_stages = sorted(list(set(["RM Inspection", "Marking", "Fit-up", "Welding", "Final"] + df["Stage"].dropna().unique().tolist())))
-    all_jobs = sorted(list(set(df["Job_Code"].dropna().unique().tolist())))
-    all_inspectors = [i for i in all_inspectors if i not in ["N/A", ""]]
+    # Extract unique values from DB and merge with defaults
+    all_workers = sorted([w for w in df["Worker"].unique() if w not in ["N/A", "", "None"]])
+    all_inspectors = sorted(list(set(base_inspectors + [i for i in df["Inspector"].unique() if i not in ["N/A", ""]])))
+    all_stages = sorted(list(set(base_stages + [s for s in df["Stage"].unique() if s not in ["N/A", ""]])))
+    all_jobs = sorted([j for j in df["Job_Code"].unique() if j not in ["N/A", ""]])
 else:
-    all_workers, all_inspectors, all_stages, all_jobs = [], ["Subodth", "Prasanth", "RamaSai", "Naresh"], ["RM Inspection", "Marking", "Fit-up", "Welding", "Final"], []
+    all_workers, all_inspectors, all_stages, all_jobs = [], base_inspectors, base_stages, []
 
-# --- 4. NAVIGATION ---
-menu = st.sidebar.radio("Menu", ["Inspection Entry", "Manage Lists", "Migration Tool"])
+# --- 4. NAVIGATION SIDEBAR ---
+st.sidebar.title("🛡️ B&G Quality Control")
+menu = st.sidebar.radio("Navigate to:", ["📝 Inspection Entry", "🗂️ Manage Lists", "📂 Migration Tool"])
 
-# --- PAGE 1: ENTRY & LEDGER ---
-if menu == "Inspection Entry":
-    st.title("📝 Quality Inspection & History")
+# --- PAGE 1: INSPECTION ENTRY & LEDGER ---
+if menu == "📝 Inspection Entry":
+    st.title("Quality Inspection Entry")
     
-    # Entry Form 
-    with st.form("qc_form", clear_on_submit=True):
-        c1, c2 = st.columns(2)
-        with c1:
+    # A. ENTRY FORM
+    with st.form("main_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
             job = st.selectbox("Job Code", ["-- Select --"] + all_jobs)
             wrk = st.selectbox("Worker Name", ["-- Select --"] + all_workers)
             ins = st.selectbox("Inspector", ["-- Select --"] + all_inspectors)
-        with c2:
+        with col2:
             stg = st.selectbox("Stage", ["-- Select --"] + all_stages)
             sts = st.radio("Result", ["Passed", "Rework", "Failed"], horizontal=True)
-            rem = st.text_area("Notes")
+            rem = st.text_area("Notes/Observations")
         
-        cam = st.camera_input("Capture Photo")
+        cam = st.camera_input("📸 Capture Evidence")
         
-        if st.form_submit_button("Submit Inspection"):
+        if st.form_submit_button("🚀 Submit Inspection"):
             if "-- Select --" in [job, wrk, ins, stg]:
-                st.warning("Please fill all fields.")
+                st.warning("⚠️ Please select all fields before submitting.")
             else:
-                # SAVE to DB in YYYY-MM-DD (ISO Format)
-                now_ist = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
                 img_str = ""
                 if cam:
                     img = Image.open(cam).convert('RGB')
@@ -76,71 +98,100 @@ if menu == "Inspection Entry":
                     img.save(buf, format="JPEG", quality=50)
                     img_str = base64.b64encode(buf.getvalue()).decode()
                 
-                payload = {"created_at": now_ist, "Job_Code": job, "Worker": wrk, "Inspector": ins, "Stage": stg, "Status": sts, "Notes": rem, "Photo": img_str}
+                payload = {
+                    "created_at": datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S'),
+                    "Job_Code": job, "Worker": wrk, "Inspector": ins,
+                    "Stage": stg, "Status": sts, "Notes": rem, "Photo": img_str
+                }
                 supabase.table("quality").insert(payload).execute()
-                st.success("✅ Saved Successfully!")
+                st.success("Inspection saved to cloud!")
                 st.rerun()
 
     st.divider()
 
-    # --- SUMMARY TABLE ---
-    st.subheader("📋 Inspection History")
+    # B. SUMMARY LEDGER
+    st.subheader("📋 Inspection History (Newest First)")
     if not df.empty:
+        # Hide system entries used for names
         view_df = df[df['Notes'] != "SYS"].copy()
         if not view_df.empty:
-            # FORCE DISPLAY FORMAT: DD-MM-YYYY
+            # Format Date/Time columns for readability
             view_df['Date'] = pd.to_datetime(view_df['created_at']).dt.strftime('%d-%m-%Y')
             view_df['Time'] = pd.to_datetime(view_df['created_at']).dt.strftime('%H:%M')
-            
-            # Show "Yes/No" for photo
             view_df['📸 Photo'] = view_df['Photo'].apply(lambda x: "✅" if len(str(x)) > 100 else "❌")
             
-            show_cols = ['id', 'Date', 'Time', 'Job_Code', 'Worker', 'Inspector', 'Stage', 'Status', '📸 Photo', 'Notes']
-            st.dataframe(view_df[show_cols], use_container_width=True)
+            cols = ['id', 'Date', 'Time', 'Job_Code', 'Worker', 'Inspector', 'Stage', 'Status', '📸 Photo', 'Notes']
+            st.dataframe(view_df[cols], use_container_width=True)
 
-            # --- PHOTO PREVIEW AT BOTTOM ---
+            # C. PHOTO PREVIEW AT THE BOTTOM
             st.divider()
+            st.subheader("🔍 Selected Photo Preview")
             photo_only = view_df[view_df['Photo'].astype(str).str.len() > 100].copy()
             if not photo_only.empty:
-                pick = st.selectbox("Select Record to View Photo:", ["-- Select --"] + photo_only['id'].astype(str).tolist())
-                if pick != "-- Select --":
+                pick = st.selectbox("Select ID from table to see photo:", ["-- Select ID --"] + photo_only['id'].astype(str).tolist())
+                if pick != "-- Select ID --":
                     row = photo_only[photo_only['id'].astype(int) == int(pick)].iloc[0]
-                    raw_data = str(row['Photo'])
-                    if "," in raw_data: raw_data = raw_data.split(",")[1]
-                    st.image(base64.b64decode(raw_data), width=500, caption=f"ID: {pick}")
+                    img_data = str(row['Photo'])
+                    if "," in img_data: img_data = img_data.split(",")[1]
+                    st.image(base64.b64decode(img_data), width=600, caption=f"Evidence for ID: {pick}")
+            else:
+                st.info("No photos available in the current records.")
 
-# --- PAGE 3: MIGRATION (FIX DATE SWAP) ---
-elif menu == "Migration Tool":
-    st.title("📂 Migration (Force DD-MM Fix)")
+# --- PAGE 2: MANAGE LISTS ---
+elif menu == "🗂️ Manage Lists":
+    st.title("Manage Dropdown Lists")
+    st.info("Add new names or stages here. They will immediately appear in the entry form.")
     
-    if st.button("🗑️ CLEAR ALL DATA"):
+    colA, colB = st.columns(2)
+    with colA:
+        st.subheader("Workers & Jobs")
+        new_worker = st.text_input("New Worker Name")
+        if st.button("Add Worker") and new_worker:
+            save_list_item("Worker", new_worker)
+            
+        new_job = st.text_input("New Job Code")
+        if st.button("Add Job Code") and new_job:
+            save_list_item("Job_Code", new_job)
+            
+    with colB:
+        st.subheader("Inspectors & Stages")
+        new_ins = st.text_input("New Inspector")
+        if st.button("Add Inspector") and new_ins:
+            save_list_item("Inspector", new_ins)
+            
+        new_stg = st.text_input("New Stage")
+        if st.button("Add Stage") and new_stg:
+            save_list_item("Stage", new_stg)
+
+# --- PAGE 3: MIGRATION ---
+elif menu == "📂 Migration Tool":
+    st.title("Data Migration")
+    st.warning("Ensure 'quality_logs.csv' is in your GitHub folder.")
+    
+    if st.button("🗑️ Clear Cloud Database"):
         supabase.table("quality").delete().neq("id", 0).execute()
-        st.success("Database cleared!")
+        st.success("Database wiped clean.")
         st.rerun()
 
-    if st.button("🚀 Run Migration"):
+    if st.button("🚀 Run CSV Migration"):
         if os.path.exists("quality_logs.csv"):
-            old_df = pd.read_csv("quality_logs.csv").fillna("")
+            csv_df = pd.read_csv("quality_logs.csv").fillna("")
             records = []
-            for _, r in old_df.iterrows():
+            for _, r in csv_df.iterrows():
+                # Force DD-MM format for Indian records
                 try:
-                    # dayfirst=True ensures 02-03 is MARCH 2nd
-                    ts_obj = pd.to_datetime(r.get('Timestamp', ''), dayfirst=True)
-                    clean_ts = ts_obj.strftime('%Y-%m-%d %H:%M:%S')
+                    ts = pd.to_datetime(r.get('Timestamp', ''), dayfirst=True).strftime('%Y-%m-%d %H:%M:%S')
                 except:
-                    clean_ts = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+                    ts = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
                 
                 records.append({
-                    "created_at": clean_ts, 
-                    "Inspector": str(r.get('Inspector', 'N/A')),
-                    "Worker": str(r.get('Worker', 'N/A')),
-                    "Job_Code": str(r.get('Job_Code', 'N/A')),
-                    "Stage": str(r.get('Stage', 'N/A')),
-                    "Status": str(r.get('Status', 'Passed')),
-                    "Notes": str(r.get('Notes', '')),
-                    "Photo": str(r.get('Photo', ''))
+                    "created_at": ts, "Job_Code": str(r.get('Job_Code', 'N/A')),
+                    "Worker": str(r.get('Worker', 'N/A')), "Inspector": str(r.get('Inspector', 'N/A')),
+                    "Stage": str(r.get('Stage', 'N/A')), "Status": str(r.get('Status', 'N/A')),
+                    "Notes": str(r.get('Notes', '')), "Photo": str(r.get('Photo', ''))
                 })
+            # Batch upload
             for i in range(0, len(records), 5):
                 supabase.table("quality").insert(records[i:i+5]).execute()
-            st.success("Migration complete! Dates are correct in App.")
+            st.success(f"Migrated {len(records)} records!")
             st.rerun()
