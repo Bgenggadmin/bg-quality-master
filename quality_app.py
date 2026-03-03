@@ -39,6 +39,48 @@ def get_production_jobs():
         return []
 
 df = load_quality_data()
+# --- ONE-TIME MIGRATION TOOL ---
+with st.sidebar.expander("🚀 DATA MIGRATION"):
+    st.warning("This moves data from quality_logs.csv to Supabase.")
+    if st.button("Start Quality Migration"):
+        if os.path.exists("quality_logs.csv"):
+            try:
+                # 1. Load the old CSV
+                old_df = pd.read_csv("quality_logs.csv")
+                
+                # 2. Match column names & Fix Dates
+                # CSV has 'Timestamp', Supabase wants 'created_at'
+                if 'Timestamp' in old_df.columns:
+                    old_df['created_at'] = pd.to_datetime(
+                        old_df['Timestamp'], dayfirst=True, errors='coerce'
+                    ).dt.strftime('%Y-%m-%d %H:%M:%S')
+                    old_df = old_df.drop(columns=['Timestamp'])
+                
+                # 3. Handle missing values
+                old_df['Notes'] = old_df['Notes'].fillna("")
+                old_df['Photo'] = old_df['Photo'].fillna("")
+                old_df['Status'] = old_df['Status'].fillna("Unknown")
+
+                # 4. Upload in small batches (Photos are large!)
+                data_records = old_df.to_dict(orient='records')
+                progress_bar = st.progress(0)
+                batch_size = 5 # Small batch size because of Base64 strings
+                
+                for i in range(0, len(data_records), batch_size):
+                    batch = data_records[i:i + batch_size]
+                    supabase.table("quality").insert(batch).execute()
+                    
+                    # Update progress
+                    percent = min((i + batch_size) / len(data_records), 1.0)
+                    progress_bar.progress(percent)
+                
+                st.success(f"✅ Migrated {len(data_records)} records successfully!")
+                st.balloons()
+                st.rerun()
+            except Exception as e:
+                st.error(f"Migration failed: {e}")
+        else:
+            st.error("Could not find 'quality_logs.csv'. Is it in your GitHub folder?")
 
 # --- 3. SIDEBAR NAVIGATION ---
 st.sidebar.title("🛡️ Quality Menu")
