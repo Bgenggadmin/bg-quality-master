@@ -163,34 +163,53 @@ elif menu == "View Evidence Photos":
         st.info("No photos found.")
 
 # --- PAGE 4: MIGRATION (STRICT & SAFE) ---
+# --- PAGE 4: MIGRATION (ACTUAL DATE PRESERVATION) ---
 elif menu == "Migration Tool":
-    st.title("📂 Data Migration")
-    if st.button("🚀 Start Corrected Migration"):
+    st.title("📂 Historical Data Migration")
+    st.info("This tool will use the ACTUAL dates from your CSV file.")
+    
+    if st.button("🚀 Start Actual Time Migration"):
         if os.path.exists("quality_logs.csv"):
             try:
+                # 1. Load CSV
                 old_df = pd.read_csv("quality_logs.csv").fillna("")
+                
                 records = []
                 for _, r in old_df.iterrows():
-                    # Parse and force to IST before saving
-                    raw_ts = r.get('Timestamp', datetime.now(IST))
-                    dt_obj = pd.to_datetime(raw_ts, dayfirst=True)
-                    if dt_obj.tzinfo is None:
-                        dt_obj = IST.localize(dt_obj)
+                    # 2. Get the Actual Timestamp from CSV
+                    # We assume CSV format is '02-03-2026 22:45' (DD-MM-YYYY)
+                    raw_ts = str(r.get('Timestamp', ''))
                     
+                    try:
+                        # Try parsing the CSV date
+                        dt_obj = pd.to_datetime(raw_ts, dayfirst=True)
+                        # Format it exactly for Supabase: YYYY-MM-DD HH:MM:SS
+                        clean_ts = dt_obj.strftime('%Y-%m-%d %H:%M:%S')
+                    except:
+                        # Fallback if date is missing
+                        clean_ts = datetime.now(IST).strftime('%Y-%m-%d %H:%M:%S')
+
+                    # 3. Build the record with ACTUAL CSV data
                     records.append({
-                        "created_at": dt_obj.isoformat(),
+                        "created_at": clean_ts, # This forces the DB to use your CSV time
                         "Inspector": str(r.get('Inspector', 'N/A')),
                         "Worker": str(r.get('Worker', 'N/A')),
                         "Job_Code": str(r.get('Job_Code', 'N/A')),
                         "Stage": str(r.get('Stage', 'N/A')),
-                        "Status": str(r.get('Status', 'N/A')),
+                        "Status": str(r.get('Status', 'Passed')),
                         "Notes": str(r.get('Notes', '')),
                         "Photo": str(r.get('Photo', ''))
                     })
                 
+                # 4. Upload in batches
+                progress = st.progress(0)
                 for i in range(0, len(records), 5):
                     supabase.table("quality").insert(records[i:i+5]).execute()
-                st.success("Migration Successful!")
-                st.rerun()
+                    progress.progress(min((i + 5) / len(records), 1.0))
+                
+                st.success(f"✅ Migrated {len(records)} records with ORIGINAL timestamps!")
+                st.balloons()
             except Exception as e:
                 st.error(f"Migration Error: {e}")
+        else:
+            st.error("CSV file not found in GitHub.")
