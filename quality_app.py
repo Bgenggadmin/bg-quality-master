@@ -164,6 +164,7 @@ elif menu == "View Evidence Photos":
         st.info("No photos found in the database.")
 
 # --- PAGE 4: MIGRATION (FIXED FOR JSON) ---
+# --- PAGE 4: MIGRATION (FIXED FOR SCHEMA MISMATCH) ---
 elif menu == "Migration Tool":
     st.title("📂 Data Migration")
     st.warning("This tool moves your old quality_logs.csv data into the cloud.")
@@ -173,18 +174,26 @@ elif menu == "Migration Tool":
             try:
                 old_df = pd.read_csv("quality_logs.csv")
                 
-                # Column & Date Fix
+                # 1. Fix Dates
                 if 'Timestamp' in old_df.columns:
                     old_df['created_at'] = pd.to_datetime(old_df['Timestamp'], dayfirst=True, errors='coerce').dt.strftime('%Y-%m-%d %H:%M:%S')
                     old_df = old_df.drop(columns=['Timestamp'])
                 
-                # CRITICAL: Clean for JSON Compliance
+                # 2. CRITICAL FIX: Remove columns that don't exist in Supabase 'quality' table
+                # We only keep the columns the database actually expects
+                allowed_columns = ['created_at', 'Inspector', 'Job_Code', 'Stage', 'Status', 'Notes', 'Photo']
+                
+                # This line keeps only the columns listed above and ignores 'Activity' or others
+                existing_cols = [c for c in allowed_columns if c in old_df.columns or c == 'created_at']
+                old_df = old_df[existing_cols]
+
+                # 3. Clean for JSON Compliance
                 old_df = old_df.fillna("") 
                 
                 data_records = old_df.to_dict(orient='records')
                 progress = st.progress(0)
                 
-                # Small batch size (3) because photos are very heavy
+                # Small batch size because photos are heavy
                 batch_size = 3 
                 for i in range(0, len(data_records), batch_size):
                     batch = data_records[i:i + batch_size]
@@ -192,7 +201,7 @@ elif menu == "Migration Tool":
                     percent = min((i + batch_size) / len(data_records), 1.0)
                     progress.progress(percent)
                 
-                st.success(f"✅ Migrated {len(data_records)} records!")
+                st.success(f"✅ Migrated {len(data_records)} records successfully (Ignored non-matching columns)!")
                 st.balloons()
             except Exception as e:
                 st.error(f"Migration failed: {e}")
