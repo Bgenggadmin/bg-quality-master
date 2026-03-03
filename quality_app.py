@@ -148,3 +148,15 @@ elif menu == "🗂️ Manage Lists":
         
         new_i = st.text_input("New Inspector Name")
         if st.button("Save Inspector") and new_i: add_sys_item("Inspector", new_i)
+            # --- ADD EXPORT BUTTON ---
+st.divider()
+if not view_df.empty:
+    # Convert dataframe to CSV format in memory
+    csv_data = view_df.to_csv(index=False).encode('utf-8')
+    
+    st.download_button(
+        label="📥 Download Ledger as CSV",
+        data=csv_data,
+        file_name=f"BG_Quality_Report_{datetime.now().strftime('%d-%m-%Y')}.csv",
+        mime='text/csv',
+    )
