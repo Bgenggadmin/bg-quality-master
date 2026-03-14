@@ -20,7 +20,7 @@ except:
     st.stop()
 
 # --- 2. DATA LOADING ---
-@st.cache_data(ttl=5)
+@st.cache_data(ttl=300)
 def load_all_records():
     try:
         # Fetches newest data first
